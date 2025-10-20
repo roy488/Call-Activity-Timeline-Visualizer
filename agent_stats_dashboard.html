@@ -1,555 +1,594 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Multi-Day Agent Statistics Dashboard</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #f7f9fb;
-            min-height: 100vh;
-        }
-        .table-header-cell {
-            cursor: pointer;
-            position: relative;
-            user-select: none;
-            padding-right: 20px !important; /* Space for sort icon */
-        }
-        .sort-icon {
-            position: absolute;
-            right: 5px;
-            top: 50%;
-            transform: translateY(-50%);
-            font-size: 0.8em;
-            opacity: 0.5;
-            transition: opacity 0.2s;
-        }
-        .table-header-cell.asc .sort-icon { opacity: 1; content: '▲'; }
-        .table-header-cell.desc .sort-icon { opacity: 1; content: '▼'; }
-        .table-header-cell:hover .sort-icon { opacity: 1; }
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Multi-Day Agent Statistics Dashboard</title>
 
-        .loading-overlay {
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(255, 255, 255, 0.9);
-            z-index: 100;
-            display: none;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            border-radius: 0.5rem;
-        }
-        /* New Checkbox Panel Styles */
-        #checkbox-container {
-            max-height: 150px; /* Constrain height */
-            overflow-y: auto; /* Enable scrolling */
-            padding: 8px;
-            border: 1px solid #e2e8f0;
-            border-radius: 6px;
-            background-color: #f8fafc;
-            width: 200px;
-        }
-        .agent-checkbox-item {
-            display: flex;
-            align-items: center;
-            padding: 2px 0;
-            font-size: 0.9rem;
-            cursor: pointer;
-        }
-        .agent-checkbox-item:hover {
-            background-color: #eff6ff; /* Blue hover for clarity */
-            border-radius: 4px;
-        }
-    </style>
+  <!-- SheetJS Library for reading .xlsx files -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+    body { font-family: 'Inter', sans-serif; background-color: #f7f9fb; min-height: 100vh; }
+    .table-header-cell { cursor: pointer; position: relative; user-select: none; padding-right: 20px !important; }
+    .sort-icon { position: absolute; right: 5px; top: 50%; transform: translateY(-50%); font-size: 0.8em; opacity: 0.5; transition: opacity 0.2s; }
+    .table-header-cell.asc .sort-icon { opacity: 1; content: '▲'; }
+    .table-header-cell.desc .sort-icon { opacity: 1; content: '▼'; }
+    .table-header-cell:hover .sort-icon { opacity: 1; }
+    .loading-overlay { position: absolute; inset: 0; background: rgba(255,255,255,0.9); z-index: 100; display: none; flex-direction: column; align-items: center; justify-content: center; border-radius: 0.5rem; }
+    #checkbox-container { max-height: 150px; overflow-y: auto; padding: 8px; border: 1px solid #e2e8f0; border-radius: 6px; background-color: #f8fafc; width: 200px; }
+    .agent-checkbox-item { display: flex; align-items: center; padding: 2px 0; font-size: 0.9rem; cursor: pointer; }
+    .agent-checkbox-item:hover { background-color: #eff6ff; border-radius: 4px; }
+    .step-box { background-color: #fff; padding: 1.5rem; border-radius: 0.75rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+  </style>
 </head>
 <body class="p-8">
+  <div id="app" class="max-w-7xl mx-auto">
+    <header class="mb-8 p-4 bg-white rounded-xl shadow-lg border-b-4 border-emerald-500">
+      <h1 class="text-3xl font-bold text-gray-800">Agent Performance Statistics Dashboard</h1>
+      <p class="text-gray-500 mt-1">Metrics are calculated based on <span class="font-bold">Total Handle Time</span> and an <span class="font-bold">8-hour net workday</span>.</p>
+    </header>
 
-    <div id="app" class="max-w-7xl mx-auto">
-        <header class="mb-8 p-4 bg-white rounded-xl shadow-lg border-b-4 border-emerald-500">
-            <h1 class="text-3xl font-bold text-gray-800">Agent Performance Statistics Dashboard</h1>
-            <p class="text-gray-500 mt-1">Analyze agent averages across multiple days of call data.</p>
-        </header>
-
-        <!-- File Upload Area -->
-        <div id="drop-area" class="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center bg-white hover:border-emerald-400 transition cursor-pointer mb-8">
-            <input type="file" id="csvFile" accept=".csv" class="hidden">
-            <p class="text-lg font-medium text-gray-700">Drag & Drop your multi-day CSV file here, or click to select.</p>
-        </div>
-
-        <!-- Dashboard Container -->
-        <div id="dashboard-area" class="bg-white p-6 rounded-xl shadow-lg relative" style="min-height: 400px; display: none;">
-            <div id="loading-overlay" class="loading-overlay">
-                <svg class="animate-spin -ml-1 mr-3 h-8 w-8 text-emerald-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                <p class="mt-2 text-emerald-600 font-semibold">Analyzing multi-day data and calculating averages...</p>
-            </div>
-            
-            <div class="flex items-start justify-between mb-4">
-                 <h2 class="text-2xl font-semibold text-gray-700">Agent Daily Averages</h2>
-
-                 <!-- AGENT FILTER CONTROL PANEL -->
-                <div id="filter-controls" class="flex flex-col">
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Select Agents:</label>
-                    <div id="checkbox-container">
-                        <!-- Checkboxes injected here -->
-                    </div>
-                    <div class="flex space-x-2 mt-2">
-                         <button id="applyFilter" class="px-3 py-2 flex-1 bg-emerald-500 text-white rounded-md hover:bg-emerald-600 transition font-medium text-sm">Update Metrics</button>
-                         <button id="clearSelection" class="px-3 py-2 flex-1 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition font-medium text-sm">Clear Selection</button>
-                    </div>
-                </div>
-            </div>
-
-            <div id="summary-metrics" class="text-sm text-gray-500 mb-4"></div>
-
-            <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50">
-                        <tr>
-                            <th id="sort-agent" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider table-header-cell" data-sort-key="agentName">Agent <span class="sort-icon"></span></th>
-                            <th id="sort-days" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider table-header-cell" data-sort-key="daysActive">Days Active <span class="sort-icon"></span></th>
-                            <th id="sort-inbound-count" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider table-header-cell" data-sort-key="avgInboundCount">Avg Inbound/Day <span class="sort-icon"></span></th>
-                            <th id="sort-inbound-time" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider table-header-cell" data-sort-key="avgInboundTime">Avg Inbound Time/Day <span class="sort-icon"></span></th>
-                            <th id="sort-outbound-count" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider table-header-cell" data-sort-key="avgOutboundCount">Avg Outbound/Day <span class="sort-icon"></span></th>
-                            <th id="sort-outbound-time" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider table-header-cell" data-sort-key="avgOutboundTime">Avg Outbound Time/Day <span class="sort-icon"></span></th>
-                            <th id="sort-off-phone" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider table-header-cell" data-sort-key="avgTimeOffPhone">Avg Time Off Phone/Day <span class="sort-icon"></span></th>
-                        </tr>
-                    </thead>
-                    <tbody id="stats-table-body" class="bg-white divide-y divide-gray-200">
-                        <!-- Data rows injected here -->
-                    </tbody>
-                </table>
-            </div>
-
-        </div>
-
-        <div id="status-message" class="mt-4 text-center text-red-500 font-medium hidden"></div>
-
+    <div id="workflow-guide" class="mb-8 grid grid-cols-1 gap-6">
+      <div class="step-box border-l-4 border-emerald-500">
+        <div class="text-xl font-bold text-emerald-600 mb-2">Instructions: Upload the Data</div>
+        <p class="text-gray-700">
+          Upload the <strong>Original RingCentral XLSX</strong> report. The app reads the <strong>Users</strong> sheet,
+          converts it to CSV internally, and calculates metrics. (CSV uploads also work, but are optional.)
+        </p>
+      </div>
     </div>
 
-    <script>
-        // Global Constants (Matched to your visualization file)
-        const AGENT_LIST = [
-            "Dave", "David", "Marcos", "Tammy", "Alex Campos", "Alejandro", "Wanda", "Austin", "Cullen",
-            "Brandon", "Hayden", "Olivia", "Nate", "Brady", "Kimberly", "Duncan",
-            "Brendan", "Natasha", "John", "Joel"
-        ].map(name => name.toUpperCase());
-        
-        const WORKING_DAY_SECONDS = 8 * 60 * 60; // Assuming an 8-hour workday (8 hours * 60 min * 60 sec)
+    <div id="drop-area" class="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center bg-white hover:border-emerald-400 transition cursor-pointer mb-8">
+      <input type="file" id="dataFileInput" accept=".xlsx,.xlsm,.xls,.csv" class="hidden">
+      <p id="drop-text" class="text-lg font-medium text-gray-700">**DROP ORIGINAL XLSX FILE HERE**</p>
+    </div>
 
-        let initialData = []; // Holds the full parsed data after file load
-        let agentsAvailableInFile = []; // List of all agents found in the initialData
-        let agentsToDisplay = []; // List of agents selected in the filter
+    <div id="dashboard-area" class="bg-white p-6 rounded-xl shadow-lg relative" style="min-height: 400px; display: none;">
+      <div id="loading-overlay" class="loading-overlay">
+        <svg class="animate-spin -ml-1 mr-3 h-8 w-8 text-emerald-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <p class="mt-2 text-emerald-600 font-semibold">Analyzing report...</p>
+      </div>
 
-        let agentStatistics = [];
-        let sortColumn = 'agentName';
-        let sortDirection = 'asc';
+      <div class="flex items-start justify-between mb-4">
+        <h2 class="text-2xl font-semibold text-gray-700">Agent Daily Averages</h2>
+        <div id="filter-controls" class="flex flex-col">
+          <label class="block text-sm font-medium text-gray-700 mb-1">Select Agents:</label>
+          <div id="checkbox-container"></div>
+          <div class="flex space-x-2 mt-2">
+            <button id="applyFilter" class="px-3 py-2 flex-1 bg-emerald-500 text-white rounded-md hover:bg-emerald-600 transition font-medium text-sm">Update Metrics</button>
+            <button id="clearSelection" class="px-3 py-2 flex-1 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition font-medium text-sm">Clear Selection</button>
+          </div>
+        </div>
+      </div>
 
-        // Utility Functions
-        const extractAgentName = (nameWithNumber) => {
-            if (!nameWithNumber) return null;
-            const name = nameWithNumber.split('(')[0].trim().toUpperCase();
-            
-            for (const agent of AGENT_LIST) {
-                if (name.includes(agent)) {
-                    const matchedAgent = AGENT_LIST.find(n => name.includes(n));
-                    if (matchedAgent === "DAVID") return "David";
-                    if (matchedAgent === "DAVE") return "Dave";
-                    // Fallback to title case of the match for others
-                    return matchedAgent.replace(/\b\w/g, l => l.toUpperCase()); 
-                }
-            }
-            return null;
-        };
-        
-        const secondsToHms = (d) => {
-            d = Number(d);
-            const h = Math.floor(d / 3600);
-            const m = Math.floor(d % 3600 / 60);
-            const s = Math.floor(d % 3600 % 60);
+      <div id="summary-metrics" class="text-sm text-gray-500 mb-4"></div>
 
-            const hDisplay = h > 0 ? h + "h " : "";
-            const mDisplay = m > 0 ? m + "m " : "";
-            const sDisplay = s > 0 ? s + "s" : "";
-            return hDisplay + mDisplay + sDisplay || "0s"; 
+      <div class="overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50">
+            <tr>
+              <th id="sort-agent" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider table-header-cell" data-sort-key="agentName">Agent <span class="sort-icon"></span></th>
+              <th id="sort-days" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider table-header-cell" data-sort-key="daysActive">Days Active <span class="sort-icon"></span></th>
+              <th id="sort-inbound-count" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider table-header-cell" data-sort-key="avgInboundCount">Avg Inbound/Day <span class="sort-icon"></span></th>
+              <th id="sort-inbound-time" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider table-header-cell" data-sort-key="avgInboundTime">Avg Inbound Handle Time/Day <span class="sort-icon"></span></th>
+              <th id="sort-outbound-count" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider table-header-cell" data-sort-key="avgOutboundCount">Avg Outbound/Day <span class="sort-icon"></span></th>
+              <th id="sort-outbound-time" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider table-header-cell" data-sort-key="avgOutboundTime">Avg Outbound Handle Time/Day <span class="sort-icon"></span></th>
+              <th id="sort-off-phone" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider table-header-cell" data-sort-key="avgTimeOffPhone">Avg Time Off Phone/Day <span class="sort-icon"></span></th>
+            </tr>
+          </thead>
+          <tbody id="stats-table-body" class="bg-white divide-y divide-gray-200"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="status-message" class="mt-4 text-center text-red-500 font-medium hidden"></div>
+  </div>
+
+  <!-- Main App Script -->
+  <script>
+    // ---------- Constants ----------
+    const WORKING_DAY_SECONDS = 8 * 60 * 60;
+    const IDLE_TIME_HIGHLIGHT_THRESHOLD = 30 * 60;
+    const SHEET_NAME_TO_FIND = "Users";
+    const AGENT_DATA_START_KEYWORD = "Name";
+
+    // RingCentral Users sheet column order (after CSV conversion)
+    const FIXED_COLUMN_INDICES = {
+      "Name": 0,
+      "User Status": 1,
+      "Total Calls": 3,
+      "Avg. Calls/Day": 4,
+      "# Inbound": 5,
+      "# Outbound": 6,
+      "Total Handle Time (in)": 9,
+      "Total Handle Time (out)": 10
+    };
+
+    // ---------- State ----------
+    let initialData = [];
+    let agentsAvailableInFile = [];
+    let agentsToDisplay = [];
+    let totalReportDays = 0;
+    let agentStatistics = [];
+    let sortColumn = 'agentName';
+    let sortDirection = 'asc';
+
+    // ---------- UI refs ----------
+    const dropArea = document.getElementById('drop-area');
+    const dataFileInput = document.getElementById('dataFileInput');
+    const dropText = document.getElementById('drop-text');
+    const statusMessage = document.getElementById('status-message');
+
+    // ---------- Utils ----------
+    const hmsToSeconds = (hms) => {
+      if (!hms || typeof hms !== 'string') return 0;
+      const parts = hms.split(':');
+      if (parts.length === 3) {
+        const h = parseInt(parts[0], 10) || 0;
+        const m = parseInt(parts[1], 10) || 0;
+        const s = parseInt(parts[2], 10) || 0;
+        return (h * 3600) + (m * 60) + s;
+      }
+      return 0;
+    };
+
+    const secondsToHms = (d) => {
+      d = Math.round(Number(d));
+      const h = Math.floor(d / 3600);
+      const m = Math.floor((d % 3600) / 60);
+      const s = d % 60;
+      const hDisplay = h > 0 ? `${h}h ` : "";
+      const mDisplay = m > 0 ? `${m}m ` : "";
+      const sDisplay = s > 0 || (h === 0 && m === 0) ? `${s}s` : "";
+      return (hDisplay + mDisplay + sDisplay).trim() || '0s';
+    };
+
+    // ---------- ZIP normalizer (fixes data-descriptor XLSX errors) ----------
+    function normalizeZipLocalHeaders(u8) {
+      const SIG_EOCD = 0x06054b50;   // End of central directory
+      const SIG_CEN  = 0x02014b50;   // Central directory file header
+      const SIG_LOC  = 0x04034b50;   // Local file header
+
+      const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+      const maxBack = Math.min(u8.length, 0x10000 + 22);
+      let eocdPos = -1;
+      for (let i = u8.length - 22; i >= u8.length - maxBack; --i) {
+        if (i < 0) break;
+        if (dv.getUint32(i, true) === SIG_EOCD) { eocdPos = i; break; }
+      }
+      if (eocdPos < 0) return u8;
+
+      const cenSize = dv.getUint32(eocdPos + 12, true);
+      const cenOff  = dv.getUint32(eocdPos + 16, true);
+
+      let p = cenOff;
+      const end = cenOff + cenSize;
+
+      while (p + 46 <= end && dv.getUint32(p, true) === SIG_CEN) {
+        const crc32  = dv.getUint32(p + 16, true);
+        const csize  = dv.getUint32(p + 20, true);
+        const usize  = dv.getUint32(p + 24, true);
+        const fnlen  = dv.getUint16(p + 28, true);
+        const xlen   = dv.getUint16(p + 30, true);
+        const clen   = dv.getUint16(p + 32, true);
+        const lhofs  = dv.getUint32(p + 42, true);
+
+        if (lhofs + 30 <= u8.length && dv.getUint32(lhofs, true) ===  SIG_LOC) {
+          const gp = dv.getUint16(lhofs + 6, true);
+          dv.setUint16(lhofs + 6, gp & ~0x0008, true); // clear data-descriptor bit (0x0008)
+          dv.setUint32(lhofs + 14, crc32, true);
+          dv.setUint32(lhofs + 18, csize, true);
+          dv.setUint32(lhofs + 22, usize, true);
+        }
+        p += 46 + fnlen + xlen + clen;
+      }
+      return u8;
+    }
+
+
+    // ---------- CSV Parser ----------
+    const parseCSV = (csvText) => {
+      const lines = csvText.split(/\r?\n/);
+      let dataStartRow = -1;
+      const data = [];
+      const newAgentsAvailable = [];
+      let computedDays = 0;
+
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].trim().startsWith(AGENT_DATA_START_KEYWORD)) {
+          dataStartRow = i + 1;
+          break;
+        }
+      }
+      if (dataStartRow === -1) throw new Error("Could not find the start of the agent data (missing 'Name' column).");
+
+      for (let r = dataStartRow; r < lines.length; r++) {
+        const line = lines[r].trim();
+        if (!line) continue;
+
+        const row = line.split(',');
+        if (row.length <= FIXED_COLUMN_INDICES["Total Handle Time (out)"]) continue;
+
+        const agentName = String(row[FIXED_COLUMN_INDICES["Name"]] || "").trim();
+        const userStatus = String(row[FIXED_COLUMN_INDICES["User Status"]] || "").trim().toUpperCase();
+
+        const totalCalls = parseFloat(row[FIXED_COLUMN_INDICES["Total Calls"]]) || 0;
+        const avgCallsPerDay = parseFloat(row[FIXED_COLUMN_INDICES["Avg. Calls/Day"]]) || 0;
+        const totalInboundCount = parseInt(row[FIXED_COLUMN_INDICES["# Inbound"]]) || 0;
+        const totalOutboundCount = parseInt(row[FIXED_COLUMN_INDICES["# Outbound"]]) || 0;
+
+        const totalHandleIn = hmsToSeconds(String(row[FIXED_COLUMN_INDICES["Total Handle Time (in)"]] || ""));
+        const totalHandleOut = hmsToSeconds(String(row[FIXED_COLUMN_INDICES["Total Handle Time (out)"]] || ""));
+
+        if (computedDays === 0 && totalCalls > 0 && avgCallsPerDay > 0) {
+          computedDays = Math.max(1, Math.round((totalCalls / avgCallsPerDay) * 10) / 10);
+          if (computedDays > 30) computedDays = Math.round(computedDays);
         }
 
-        // --- Core Data Processing ---
+        if (!agentName || agentName.toUpperCase().includes("DIRECT") || userStatus !== "ACTIVE") continue;
 
-        const parseCSV = (csvText) => {
-            const lines = csvText.trim().split('\n');
-            if (lines.length < 2) return [];
+        newAgentsAvailable.push(agentName);
 
-            const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
-            const data = [];
-
-            const colIndices = {
-                fromName: headers.indexOf("From Name"),
-                toName: headers.indexOf("To Name"),
-                result: headers.indexOf("Result"),
-                callLength: headers.indexOf("Call Length"),
-                callStartTime: headers.indexOf("Call Start Time"),
-                direction: headers.indexOf("Call Direction")
-            };
-
-            for (let i = 1; i < lines.length; i++) {
-                const values = lines[i].split(',');
-                if (values.length !== headers.length) continue;
-                
-                const record = {};
-                headers.forEach((header, index) => {
-                    record[header] = values[index].trim().replace(/"/g, '');
-                });
-
-                const result = record[headers[colIndices.result]];
-                const duration = parseInt(record[headers[colIndices.callLength]] || 0, 10);
-                const direction = record[headers[colIndices.direction]];
-                const startTime = record[headers[colIndices.callStartTime]];
-
-                if ((result === "Connected" || result === "Answered") && duration > 0) {
-                    
-                    let agentName = null;
-                    
-                    const fromName = record[headers[colIndices.fromName]];
-                    const toName = record[headers[colIndices.toName]];
-
-                    // Determine Agent (same logic as timeline)
-                    if (direction === "Outbound") {
-                        agentName = extractAgentName(fromName);
-                    } else if (direction === "Inbound") {
-                        agentName = extractAgentName(toName) || extractAgentName(fromName);
-                    } else {
-                        agentName = extractAgentName(fromName) || extractAgentName(toName);
-                    }
-
-                    if (agentName && !agentName.toUpperCase().includes("DIRECT")) {
-                        const callStart = new Date(startTime);
-                        // Convert to YYYY-MM-DD for grouping
-                        const dateKey = callStart.toISOString().split('T')[0]; 
-                        
-                        data.push({
-                            agentName,
-                            direction,
-                            duration, // seconds
-                            dateKey,
-                        });
-                    }
-                }
-            }
-            return data;
-        };
-
-        const calculateStatistics = (data) => {
-            // Filter data to only include agents currently selected to display
-            const filteredData = data.filter(call => agentsToDisplay.includes(call.agentName));
-
-            const dailyStats = {}; // { AgentName: { DateKey: { inboundCount, outboundCount, inboundTime, outboundTime } } }
-            
-            filteredData.forEach(call => {
-                const { agentName, dateKey, direction, duration } = call;
-
-                if (!dailyStats[agentName]) {
-                    dailyStats[agentName] = {};
-                }
-                if (!dailyStats[agentName][dateKey]) {
-                    dailyStats[agentName][dateKey] = {
-                        inboundCount: 0,
-                        outboundCount: 0,
-                        inboundTime: 0,
-                        outboundTime: 0
-                    };
-                }
-
-                const dayStat = dailyStats[agentName][dateKey];
-                if (direction === 'Inbound') {
-                    dayStat.inboundCount++;
-                    dayStat.inboundTime += duration;
-                } else if (direction === 'Outbound') {
-                    dayStat.outboundCount++;
-                    dayStat.outboundTime += duration;
-                }
-            });
-
-            // Aggregate daily stats into final averages
-            const finalStats = [];
-            const allDates = new Set();
-            // Get all dates from the original, unfiltered data to establish total Work Days
-            initialData.forEach(d => allDates.add(d.dateKey));
-            const totalWorkDays = allDates.size || 1; 
-
-            for (const agentName in dailyStats) {
-                const agentDays = dailyStats[agentName];
-                const daysActive = Object.keys(agentDays).length;
-
-                let totalInboundCount = 0;
-                let totalOutboundCount = 0;
-                let totalInboundTime = 0;
-                let totalOutboundTime = 0;
-                let totalTalkTime = 0;
-
-                for (const dateKey in agentDays) {
-                    totalInboundCount += agentDays[dateKey].inboundCount;
-                    totalOutboundCount += agentDays[dateKey].outboundCount;
-                    totalInboundTime += agentDays[dateKey].inboundTime;
-                    totalOutboundTime += agentDays[dateKey].outboundTime;
-                }
-                
-                totalTalkTime = totalInboundTime + totalOutboundTime;
-                const totalWorkingSeconds = daysActive * WORKING_DAY_SECONDS;
-                const totalTimeOffPhone = Math.max(0, totalWorkingSeconds - totalTalkTime); // Max 0 in case agent works longer than 8hr day
-
-                const avgInboundCount = daysActive > 0 ? totalInboundCount / daysActive : 0;
-                const avgOutboundCount = daysActive > 0 ? totalOutboundCount / daysActive : 0;
-                const avgInboundTime = daysActive > 0 ? totalInboundTime / daysActive : 0;
-                const avgOutboundTime = daysActive > 0 ? totalOutboundTime / daysActive : 0;
-                const avgTimeOffPhone = daysActive > 0 ? totalTimeOffPhone / daysActive : 0;
-
-
-                finalStats.push({
-                    agentName,
-                    daysActive,
-                    avgInboundCount: parseFloat(avgInboundCount.toFixed(1)),
-                    avgOutboundCount: parseFloat(avgOutboundCount.toFixed(1)),
-                    avgInboundTime: avgInboundTime, // seconds
-                    avgOutboundTime: avgOutboundTime, // seconds
-                    avgTimeOffPhone: avgTimeOffPhone, // seconds
-                    totalWorkDays // context for the summary metric
-                });
-            }
-            return finalStats;
-        };
-
-        // --- Rendering and Sorting ---
-
-        const populateAgentFilter = () => {
-            const container = document.getElementById('checkbox-container');
-            container.innerHTML = ''; // Clear previous options
-            
-            agentsAvailableInFile.forEach(agentName => {
-                const itemDiv = document.createElement('label');
-                itemDiv.className = 'agent-checkbox-item';
-                itemDiv.htmlFor = `stat-agent-${agentName.replace(/\s/g, '-')}`;
-
-                const checkbox = document.createElement('input');
-                checkbox.type = 'checkbox';
-                checkbox.id = `stat-agent-${agentName.replace(/\s/g, '-')}`;
-                checkbox.value = agentName;
-                checkbox.checked = true; // Select all by default
-                checkbox.className = 'mr-2 rounded text-emerald-600 focus:ring-emerald-500';
-
-                itemDiv.appendChild(checkbox);
-                itemDiv.appendChild(document.createTextNode(agentName));
-                container.appendChild(itemDiv);
-            });
-            
-            // Initialize agentsToDisplay to all available agents
-            agentsToDisplay = [...agentsAvailableInFile];
-        };
-
-        const handleAgentFilterChange = () => {
-            const checkboxes = document.querySelectorAll('#checkbox-container input[type="checkbox"]');
-            
-            agentsToDisplay = [];
-            checkboxes.forEach(checkbox => {
-                if (checkbox.checked) {
-                    agentsToDisplay.push(checkbox.value);
-                }
-            });
-            // Recalculate and re-render the stats based on the new selection
-            agentStatistics = calculateStatistics(initialData);
-            renderStatistics();
-        };
-
-        const handleClearSelection = () => {
-            const checkboxes = document.querySelectorAll('#checkbox-container input[type="checkbox"]');
-            checkboxes.forEach(checkbox => {
-                checkbox.checked = false;
-            });
-            // Re-run the filter change to update the dashboard
-            handleAgentFilterChange();
+        let daysActive = computedDays || 0;
+        if (totalCalls > 0 && avgCallsPerDay > 0) {
+          daysActive = Math.round((totalCalls / avgCallsPerDay) * 10) / 10;
+          if (computedDays && daysActive > computedDays) daysActive = computedDays;
+        } else if (totalCalls === 0) {
+          daysActive = 0;
         }
 
-        const renderStatistics = () => {
-            const tbody = document.getElementById('stats-table-body');
-            const summaryDiv = document.getElementById('summary-metrics');
-            tbody.innerHTML = '';
-            
-            if (agentStatistics.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" class="px-6 py-4 text-center text-gray-500">No agent data found or no agents selected.</td></tr>';
-                summaryDiv.textContent = ``;
-                return;
-            }
+        if (totalHandleIn + totalHandleOut === 0 && totalCalls === 0) continue;
 
-            // Get total unique days from all records to display in the summary
-            const totalDays = initialData.length > 0 ? 
-                                Array.from(new Set(initialData.map(d => d.dateKey))).length : 
-                                0;
-            summaryDiv.textContent = `Analysis covers ${agentStatistics.length} selected agents across ${totalDays} total day(s) in the provided data.`;
+        data.push({
+          agentName,
+          daysActive,
+          totalCalls,
+          totalInboundCount,
+          totalOutboundCount,
+          totalHandleTimeInSecondsIn: totalHandleIn,
+          totalHandleTimeInSecondsOut: totalHandleOut,
+          totalReportDays: computedDays
+        });
+      }
 
-            // Sort data
-            const sortedStats = [...agentStatistics].sort((a, b) => {
-                let aValue = a[sortColumn];
-                let bValue = b[sortColumn];
+      agentsAvailableInFile = Array.from(new Set(newAgentsAvailable)).sort();
+      return data;
+    };
 
-                // Special handling for string vs number sorting
-                if (typeof aValue === 'string') {
-                    aValue = aValue.toLowerCase();
-                    bValue = bValue.toLowerCase();
-                }
+    const calculateStatistics = (data) => {
+      const finalStats = [];
+      const filtered = data.filter(a => agentsToDisplay.includes(a.agentName));
 
-                if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1;
-                if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1;
-                return 0;
-            });
+      filtered.forEach(agent => {
+        const daysActive = agent.daysActive || 1;
+        const totalProductive = agent.totalHandleTimeInSecondsIn + agent.totalHandleTimeInSecondsOut;
 
-            // Update header class for visual feedback
-            document.querySelectorAll('.table-header-cell').forEach(th => {
-                th.classList.remove('asc', 'desc');
-                if (th.getAttribute('data-sort-key') === sortColumn) {
-                    th.classList.add(sortDirection);
-                }
-            });
+        const avgInboundCount = agent.totalInboundCount / daysActive;
+        const avgOutboundCount = agent.totalOutboundCount / daysActive;
+        const avgInboundTime = agent.totalHandleTimeInSecondsIn / daysActive;
+        const avgOutboundTime = agent.totalHandleTimeInSecondsOut / daysActive;
+
+        const totalWorkingSeconds = daysActive * WORKING_DAY_SECONDS;
+        const totalTimeOffPhone = Math.max(0, totalWorkingSeconds - totalProductive);
+        const avgTimeOffPhone = totalTimeOffPhone / daysActive;
+
+        finalStats.push({
+          agentName: agent.agentName,
+          daysActive,
+          avgInboundCount: parseFloat(avgInboundCount.toFixed(1)),
+          avgOutboundCount: parseFloat(avgOutboundCount.toFixed(1)),
+          avgInboundTime,
+          avgOutboundTime,
+          avgTimeOffPhone,
+          totalReportDays
+        });
+      });
+
+      if (finalStats.length > 0) {
+        const grandDays = finalStats.reduce((s, x) => s + x.daysActive, 0);
+        if (grandDays > 0) {
+          const teamAvg = {
+            agentName: 'TEAM AVERAGE',
+            daysActive: grandDays,
+            totalReportDays,
+            avgInboundCount: finalStats.reduce((s, x) => s + x.avgInboundCount * x.daysActive, 0) / grandDays,
+            avgOutboundCount: finalStats.reduce((s, x) => s + x.avgOutboundCount * x.daysActive, 0) / grandDays,
+            avgInboundTime: finalStats.reduce((s, x) => s + x.avgInboundTime * x.daysActive, 0) / grandDays,
+            avgOutboundTime: finalStats.reduce((s, x) => s + x.avgOutboundTime * x.daysActive, 0) / grandDays,
+            avgTimeOffPhone: finalStats.reduce((s, x) => s + x.avgTimeOffPhone * x.daysActive, 0) / grandDays,
+          };
+          teamAvg.avgInboundCount = parseFloat(teamAvg.avgInboundCount.toFixed(1));
+          teamAvg.avgOutboundCount = parseFloat(teamAvg.avgOutboundCount.toFixed(1));
+          finalStats.push(teamAvg);
+        }
+      }
+      return finalStats;
+    };
+
+    const populateAgentFilter = () => {
+      const container = document.getElementById('checkbox-container');
+      container.innerHTML = '';
+      agentsAvailableInFile.forEach(agentName => {
+        const item = document.createElement('label');
+        item.className = 'agent-checkbox-item';
+        item.htmlFor = `stat-agent-${agentName.replace(/\s/g, '-')}`;
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.id = `stat-agent-${agentName.replace(/\s/g, '-')}`;
+        checkbox.value = agentName;
+        checkbox.checked = true;
+        checkbox.className = 'mr-2 rounded text-emerald-600 focus:ring-emerald-500';
+
+        item.appendChild(checkbox);
+        item.appendChild(document.createTextNode(agentName));
+        container.appendChild(item);
+      });
+      agentsToDisplay = [...agentsAvailableInFile];
+    };
+
+    const renderStatistics = () => {
+      const tbody = document.getElementById('stats-table-body');
+      const summaryDiv = document.getElementById('summary-metrics');
+      tbody.innerHTML = '';
+
+      if (agentStatistics.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="px-6 py-4 text-center text-gray-500">No agent data found or no agents selected.</td></tr>';
+        summaryDiv.textContent = ``;
+        return;
+      }
+
+      const teamAvgRow = agentStatistics.find(s => s.agentName === 'TEAM AVERAGE');
+      const individuals = agentStatistics.filter(s => s.agentName !== 'TEAM AVERAGE');
+
+      const reportDays = individuals.length > 0 ? individuals[0].totalReportDays : totalReportDays;
+      summaryDiv.innerHTML = `Analysis covers ${individuals.length} selected agents based on a RingCentral report covering <span class="font-bold">${reportDays} total day(s)</span>.`;
+
+      const sorted = [...individuals].sort((a,b) => {
+        let av = a[sortColumn], bv = b[sortColumn];
+        if (typeof av === 'string') { av = av.toLowerCase(); bv = bv.toLowerCase(); }
+        if (av < bv) return sortDirection === 'asc' ? -1 : 1;
+        if (av > bv) return sortDirection === 'asc' ? 1 : -1;
+        return 0;
+      });
+
+      document.querySelectorAll('.table-header-cell').forEach(th => {
+        th.classList.remove('asc', 'desc');
+        if (th.getAttribute('data-sort-key') === sortColumn) th.classList.add(sortDirection);
+      });
+
+      const fmt = (s) => secondsToHms(s);
+
+      sorted.forEach((stat, i) => {
+        const row = document.createElement('tr');
+        row.className = `hover:bg-gray-100 ${i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}`;
+        const offPhoneClass = stat.avgTimeOffPhone > IDLE_TIME_HIGHLIGHT_THRESHOLD ? 'bg-red-50 text-red-700 font-semibold' : 'text-gray-700';
+        row.innerHTML = `
+          <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${stat.agentName}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${stat.daysActive} of ${stat.totalReportDays}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${stat.avgInboundCount.toFixed(1)}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-sm text-emerald-600 font-medium">${fmt(stat.avgInboundTime)}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${stat.avgOutboundCount.toFixed(1)}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-sm text-indigo-600 font-medium">${fmt(stat.avgOutboundTime)}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-sm ${offPhoneClass}">${fmt(stat.avgTimeOffPhone)}</td>
+        `;
+        tbody.appendChild(row);
+      });
+
+      if (teamAvgRow) {
+        const row = document.createElement('tr');
+        row.className = 'bg-emerald-100 border-t-2 border-emerald-500 hover:bg-emerald-100/80 font-bold';
+        row.innerHTML = `
+          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${teamAvgRow.agentName}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${teamAvgRow.daysActive.toFixed(1)} total days in filter</td>
+          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${teamAvgRow.avgInboundCount.toFixed(1)}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-sm text-emerald-700">${fmt(teamAvgRow.avgInboundTime)}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${teamAvgRow.avgOutboundCount.toFixed(1)}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-sm text-indigo-700">${fmt(teamAvgRow.avgOutboundTime)}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-sm text-red-700">${fmt(teamAvgRow.avgTimeOffPhone)}</td>
+        `;
+        tbody.appendChild(row);
+      }
+    };
+
+    // ---------- ZIP normalizer (fixes data-descriptor XLSX errors) ----------
+    function normalizeZipLocalHeaders(u8) {
+      const SIG_EOCD = 0x06054b50;   
+      const SIG_CEN  = 0x02014b50;   
+      const SIG_LOC  = 0x04034b50;   
+
+      const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+      const maxBack = Math.min(u8.length, 0x10000 + 22);
+      let eocdPos = -1;
+      for (let i = u8.length - 22; i >= u8.length - maxBack; --i) {
+        if (i < 0) break;
+        if (dv.getUint32(i, true) === SIG_EOCD) { eocdPos = i; break; }
+      }
+      if (eocdPos < 0) return u8;
+
+      const cenSize = dv.getUint32(eocdPos + 12, true);
+      const cenOff  = dv.getUint32(eocdPos + 16, true);
+
+      let p = cenOff;
+      const end = cenOff + cenSize;
+
+      while (p + 46 <= end && dv.getUint32(p, true) === SIG_CEN) {
+        const crc32  = dv.getUint32(p + 16, true);
+        const csize  = dv.getUint32(p + 20, true);
+        const usize  = dv.getUint32(p + 24, true);
+        const fnlen  = dv.getUint16(p + 28, true);
+        const xlen   = dv.getUint16(p + 30, true);
+        const clen   = dv.getUint16(p + 32, true);
+        const lhofs  = dv.getUint32(p + 42, true);
+
+        if (lhofs + 30 <= u8.length && dv.getUint32(lhofs, true) ===  SIG_LOC) {
+          const gp = dv.getUint16(lhofs + 6, true);
+          dv.setUint16(lhofs + 6, gp & ~0x0008, true); // clear data-descriptor bit (0x0008)
+          dv.setUint32(lhofs + 14, crc32, true);
+          dv.setUint32(lhofs + 18, csize, true);
+          dv.setUint32(lhofs + 22, usize, true);
+        }
+        p += 46 + fnlen + xlen + clen;
+      }
+      return u8;
+    }
 
 
-            // Render rows
-            sortedStats.forEach(stat => {
-                const row = document.createElement('tr');
-                row.className = 'hover:bg-gray-50';
+    // ---------- File handling ----------
+    const handleProcessedCSV = (csvText) => {
+      document.getElementById('loading-overlay').style.display = 'flex';
+      statusMessage.classList.add('hidden');
+      try {
+        initialData = parseCSV(csvText);
+        if (initialData.length === 0) throw new Error("No active agent data with handle time found.");
+        const first = initialData[0];
+        totalReportDays = first ? first.totalReportDays : 1;
 
-                const formatTime = (seconds) => secondsToHms(Math.round(seconds));
+        populateAgentFilter();
+        agentStatistics = calculateStatistics(initialData);
+        sortColumn = 'agentName';
+        sortDirection = 'asc';
+        renderStatistics();
 
-                row.innerHTML = `
-                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${stat.agentName}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${stat.daysActive}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${stat.avgInboundCount.toFixed(1)}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-emerald-600 font-semibold">${formatTime(stat.avgInboundTime)}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${stat.avgOutboundCount.toFixed(1)}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-indigo-600 font-semibold">${formatTime(stat.avgOutboundTime)}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-red-500">${formatTime(stat.avgTimeOffPhone)}</td>
-                `;
-                tbody.appendChild(row);
-            });
-        };
+        document.getElementById('dashboard-area').style.display = 'block';
+        dropText.innerHTML = `✅ <strong>Dashboard Loaded!</strong> Filter agents or drop a new file to refresh.`;
+      } catch (err) {
+        console.error("Data Processing Error:", err);
+        statusMessage.textContent = `Data Extraction Failed: ${err.message}. The safest method is always to use the "Users.csv" sheet.`;
+        statusMessage.classList.remove('hidden');
+      } finally {
+        document.getElementById('loading-overlay').style.display = 'none';
+      }
+    };
 
-        const handleSort = (event) => {
-            const newSortColumn = event.currentTarget.getAttribute('data-sort-key');
-            
-            if (sortColumn === newSortColumn) {
-                sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
-            } else {
-                sortColumn = newSortColumn;
-                sortDirection = 'asc';
-            }
-            renderStatistics();
-        };
+    const handleCSVUpload = (file) => {
+      const reader = new FileReader();
+      reader.onload = (e) => handleProcessedCSV(e.target.result);
+      reader.readAsText(file);
+    };
 
-        // --- Event Handlers and Initialization ---
+    const handleXLSXUpload = (file) => {
+      document.getElementById('loading-overlay').style.display = 'flex';
+      statusMessage.classList.add('hidden');
+      dropText.textContent = `Reading ${file.name}...`;
 
-        const handleFileLoad = (event) => {
-            document.getElementById('loading-overlay').style.display = 'flex';
-            document.getElementById('status-message').classList.add('hidden');
-            
-            const csvText = event.target.result;
+      if (!window.XLSX) {
+        statusMessage.textContent = "XLSX library not available. Check your connection.";
+        statusMessage.classList.remove('hidden');
+        document.getElementById('loading-overlay').style.display = 'none';
+        return;
+      }
 
-            try {
-                initialData = parseCSV(csvText); // Store full raw data
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const raw = new Uint8Array(e.target.result);
+          // Apply the zip normalizer to fix the bad uncompressed size errors
+          const fixed = normalizeZipLocalHeaders(raw);
 
-                if (initialData.length === 0) {
-                    throw new Error("No valid connected call data found for the specified agents.");
-                }
+          // Read the workbook from the normalized array
+          const wb = XLSX.read(fixed, { type: 'array', dense: true, cellDates: true });
+          if (!wb.SheetNames.includes(SHEET_NAME_TO_FIND)) {
+            throw new Error(`Workbook does not contain a sheet named "${SHEET_NAME_TO_FIND}".`);
+          }
+          const ws = wb.Sheets[SHEET_NAME_TO_FIND];
 
-                // 1. Get all unique agents found in the file
-                agentsAvailableInFile = Array.from(new Set(initialData.map(d => d.agentName))).sort();
+          const csvText = XLSX.utils.sheet_to_csv(ws);
+          dropText.innerHTML = `✅ <strong>Users sheet loaded!</strong> Analyzing data...`;
 
-                // 2. Populate the filter dropdown (automatically selects all)
-                populateAgentFilter();
+          handleProcessedCSV(csvText);
+        } catch (err) {
+          console.error("XLSX Read Error:", err);
+          statusMessage.textContent = `XLSX Conversion Failed: ${err.message}. Please upload the "Users.csv" sheet.`;
+          statusMessage.classList.remove('hidden');
+        } finally {
+          document.getElementById('loading-overlay').style.display = 'none';
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    };
 
-                // 3. Calculate and render initial stats (with all agents selected)
-                agentStatistics = calculateStatistics(initialData);
+    const handleFileUpload = (file) => {
+      const name = file.name.toLowerCase();
+      if (name.endsWith('.xlsx') || name.endsWith('.xlsm') || name.endsWith('.xls')) {
+        // Must ensure XLSX is loaded before attempting to use it
+        if (!window.XLSX) {
+            statusMessage.textContent = "XLSX library is still loading or blocked. Please wait a moment or try the CSV file.";
+            statusMessage.classList.remove('hidden');
+            return;
+        }
+        handleXLSXUpload(file);
+      } else if (name.endsWith('.csv')) {
+        handleCSVUpload(file);
+      } else {
+        statusMessage.textContent = "Invalid file type. Upload the original .xlsx RingCentral report or a Users.csv.";
+        statusMessage.classList.remove('hidden');
+      }
+    };
 
-                // Initial render, sorted by agent name
-                sortColumn = 'agentName';
-                sortDirection = 'asc';
-                renderStatistics();
+    // ---------- Rendering and Events (Simplified for clarity) ----------
 
-                document.getElementById('dashboard-area').style.display = 'block';
-                document.getElementById('drop-area').classList.add('hidden');
+    const handleAgentFilterChange = () => {
+      const checkboxes = document.querySelectorAll('#checkbox-container input[type="checkbox"]');
+      agentsToDisplay = [];
+      checkboxes.forEach(cb => { if (cb.checked) agentsToDisplay.push(cb.value); });
+      agentStatistics = calculateStatistics(initialData);
+      renderStatistics();
+    };
 
-            } catch (error) {
-                console.error("Data processing error:", error);
-                document.getElementById('status-message').textContent = `Error processing file: ${error.message}.`;
-                document.getElementById('status-message').classList.remove('hidden');
-            } finally {
-                document.getElementById('loading-overlay').style.display = 'none';
-            }
-        };
+    const handleClearSelection = () => {
+      const checkboxes = document.querySelectorAll('#checkbox-container input[type="checkbox"]');
+      checkboxes.forEach(cb => cb.checked = false);
+      handleAgentFilterChange();
+    };
 
-        const initApp = () => {
-            const dropArea = document.getElementById('drop-area');
-            const fileInput = document.getElementById('csvFile');
-            
-            // File Input Listener
-            fileInput.addEventListener('change', (e) => {
-                const file = e.target.files[0];
-                if (file) {
-                    const reader = new FileReader();
-                    reader.onload = handleFileLoad;
-                    reader.readAsText(file);
-                }
-            });
+    const handleSort = (e) => {
+      const newKey = e.currentTarget.getAttribute('data-sort-key');
+      if (sortColumn === newKey) sortDirection = (sortDirection === 'asc') ? 'desc' : 'asc';
+      else { sortColumn = newKey; sortDirection = 'asc'; }
+      agentStatistics = calculateStatistics(initialData);
+      renderStatistics();
+    };
+    
+    // (Other rendering/filter functions are standard and left as is)
 
-            // Drag and Drop Listeners
-            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-                dropArea.addEventListener(eventName, (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                }, false);
-            });
-            
-            ['dragenter', 'dragover'].forEach(eventName => {
-                dropArea.addEventListener(eventName, () => dropArea.classList.add('border-emerald-500'), false);
-            });
-            
-            ['dragleave', 'drop'].forEach(eventName => {
-                dropArea.addEventListener(eventName, () => dropArea.classList.remove('border-emerald-500'), false);
-            });
+    const initApp = () => {
+      dataFileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) handleFileUpload(file);
+      });
 
-            dropArea.addEventListener('drop', (e) => {
-                const dt = e.dataTransfer;
-                const files = dt.files;
-                if (files.length) {
-                    fileInput.files = files;
-                    fileInput.dispatchEvent(new Event('change'));
-                }
-            }, false);
+      ['dragenter','dragover','dragleave','drop'].forEach(evt => {
+        dropArea.addEventListener(evt, (e) => { e.preventDefault(); e.stopPropagation(); }, false);
+      });
+      ['dragenter','dragover'].forEach(evt => {
+        dropArea.addEventListener(evt, () => dropArea.classList.add('border-emerald-500'), false);
+      });
+      ['dragleave','drop'].forEach(evt => {
+        dropArea.addEventListener(evt, () => dropArea.classList.remove('border-emerald-500'), false);
+      });
+      dropArea.addEventListener('drop', (e) => {
+        const dt = e.dataTransfer;
+        if (dt.files.length) handleFileUpload(dt.files[0]);
+      }, false);
+      dropArea.addEventListener('click', () => dataFileInput.click());
 
-            dropArea.addEventListener('click', () => {
-                fileInput.click();
-            });
+      document.querySelectorAll('.table-header-cell').forEach(th => th.addEventListener('click', handleSort));
+      document.getElementById('applyFilter').addEventListener('click', handleAgentFilterChange);
+      document.getElementById('clearSelection').addEventListener('click', handleClearSelection);
 
-            // Sort Header Listeners
-            document.querySelectorAll('.table-header-cell').forEach(th => {
-                th.addEventListener('click', handleSort);
-            });
+      console.log("Stats Dashboard Initialized. Waiting for file...");
+    };
 
-            // Filter Controls
-            document.getElementById('applyFilter').addEventListener('click', handleAgentFilterChange);
-            document.getElementById('clearSelection').addEventListener('click', handleClearSelection);
-
-            console.log("Stats Dashboard Initialized. Waiting for CSV file...");
-        };
-
-        window.onload = initApp;
-
-    </script>
+    window.addEventListener("load", initApp);
+  </script>
 </body>
 </html>
-Add multi-day Agent Statistics Dashboard- take 1
+Final draft 10-20
