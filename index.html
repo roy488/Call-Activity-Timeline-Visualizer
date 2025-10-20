@@ -19,7 +19,7 @@
             max-width: 100%;
             cursor: grab;
         }
-        /* --- FIX: Ensured exact height and border consistency for alignment --- */
+        /* --- Ensures exact height and border consistency for alignment --- */
         .timeline-track {
             position: relative;
             height: 49px; /* Explicit height (48px content + 1px border) */
@@ -39,7 +39,7 @@
             opacity: 0.85;
             z-index: 10;
         }
-        /* --- FIX: Matched height and border of the track exactly --- */
+        /* --- Matches height and border of the track exactly --- */
         .timeline-header-label {
             position: sticky;
             left: 0;
@@ -50,8 +50,8 @@
             min-width: 150px;
             min-height: 49px; /* CRITICAL: Matches the track height */
             padding-right: 16px;
-            display: flex; /* Ensure it stays a flex item */
-            align-items: center; /* Vertical centering */
+            display: flex; 
+            align-items: center; 
             box-shadow: 2px 0 5px rgba(0,0,0,0.05);
         }
         .loading-overlay {
@@ -67,6 +67,27 @@
             align-items: center;
             justify-content: center;
             border-radius: 0.5rem;
+        }
+        /* New Checkbox Panel Styles */
+        #checkbox-container {
+            max-height: 150px; /* Constrain height */
+            overflow-y: auto; /* Enable scrolling */
+            padding: 8px;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            background-color: #f8fafc;
+            width: 200px;
+        }
+        .agent-checkbox-item {
+            display: flex;
+            align-items: center;
+            padding: 2px 0;
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
+        .agent-checkbox-item:hover {
+            background-color: #eff6ff; /* Blue hover for clarity */
+            border-radius: 4px;
         }
     </style>
 </head>
@@ -95,11 +116,26 @@
                 <p class="mt-2 text-indigo-600 font-semibold">Processing data and building timeline...</p>
             </div>
             
-            <div id="controls" class="flex items-center justify-between mb-4">
+            <div id="controls" class="flex items-start justify-between mb-4">
                 <h2 class="text-2xl font-semibold text-gray-700">Call Timeline</h2>
-                <div class="flex space-x-4">
-                    <button id="zoomOut" class="px-3 py-1 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition">- Zoom</button>
-                    <button id="zoomIn" class="px-3 py-1 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition">+ Zoom</button>
+                
+                <div class="flex items-end space-x-4">
+                    <!-- NEW AGENT FILTER CONTROL PANEL -->
+                    <div id="filter-controls" class="flex flex-col">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Select Agents:</label>
+                        <div id="checkbox-container">
+                            <!-- Checkboxes injected here -->
+                        </div>
+                        <div class="flex space-x-2 mt-2">
+                             <button id="applyFilter" class="px-3 py-2 flex-1 bg-indigo-500 text-white rounded-md hover:bg-indigo-600 transition font-medium text-sm">Update Timeline</button>
+                             <button id="clearSelection" class="px-3 py-2 flex-1 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition font-medium text-sm">Clear Selection</button>
+                        </div>
+                    </div>
+                    
+                    <div class="flex space-x-4">
+                        <button id="zoomOut" class="px-3 py-1 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition">- Zoom</button>
+                        <button id="zoomIn" class="px-3 py-1 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition">+ Zoom</button>
+                    </div>
                 </div>
             </div>
 
@@ -150,7 +186,9 @@
             "From Name", "To Name", "Result", "Call Length", "Call Start Time", "Call Direction"
         ];
         
-        let initialData = [];
+        let initialData = []; // All parsed and filtered call data from the CSV
+        let agentsAvailableInFile = []; // List of agents found in the initialData
+        let agentsToDisplay = []; // List of agents selected in the filter
         let timeMin = null;
         let timeMax = null;
         let zoomLevel = 1.0; // Initial zoom level
@@ -165,7 +203,6 @@
             for (const agent of AGENT_LIST) {
                 if (name.includes(agent)) {
                     // Return the standardized name from the list for consistent labeling
-                    // We need to find the exact match in the mixed case format for display
                     return AGENT_LIST.find(n => name.includes(n))
                                      .replace(/\b\w/g, l => l.toUpperCase()); // Simple title case
                 }
@@ -287,8 +324,54 @@
             timeMax.setHours(timeMax.getHours() + 1); // End of the next hour
             timeMax.setMinutes(0, 0, 0); 
         };
+
+        const populateAgentFilter = () => {
+            const container = document.getElementById('checkbox-container');
+            container.innerHTML = ''; // Clear previous options
+            
+            agentsAvailableInFile.forEach(agentName => {
+                const itemDiv = document.createElement('label');
+                itemDiv.className = 'agent-checkbox-item';
+                itemDiv.htmlFor = `agent-${agentName.replace(/\s/g, '-')}`;
+
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.id = `agent-${agentName.replace(/\s/g, '-')}`;
+                checkbox.value = agentName;
+                checkbox.checked = true; // Select all by default
+                checkbox.className = 'mr-2 rounded text-indigo-600 focus:ring-indigo-500';
+
+                itemDiv.appendChild(checkbox);
+                itemDiv.appendChild(document.createTextNode(agentName));
+                container.appendChild(itemDiv);
+            });
+            
+            // Initialize agentsToDisplay to all available agents
+            agentsToDisplay = [...agentsAvailableInFile];
+        };
+
+        const handleAgentFilterChange = () => {
+            const checkboxes = document.querySelectorAll('#checkbox-container input[type="checkbox"]');
+            
+            agentsToDisplay = [];
+            checkboxes.forEach(checkbox => {
+                if (checkbox.checked) {
+                    agentsToDisplay.push(checkbox.value);
+                }
+            });
+            renderTimeline();
+        };
+
+        const handleClearSelection = () => {
+            const checkboxes = document.querySelectorAll('#checkbox-container input[type="checkbox"]');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = false;
+            });
+            // Re-run the filter change to update the timeline
+            handleAgentFilterChange();
+        }
         
-        // --- Core Rendering Logic ---
+        // --- Core Rendering Logic (Updated to use agentsToDisplay) ---
 
         const renderTimeline = () => {
             if (initialData.length === 0 || !timeMin || !timeMax) {
@@ -296,8 +379,16 @@
                 return;
             }
 
-            // Agents are sorted alphabetically for consistent track order
-            const agentNames = Array.from(new Set(initialData.map(d => d.agentName))).sort();
+            // Agents to render are based on the selection filter
+            const agentNames = agentsAvailableInFile.filter(name => agentsToDisplay.includes(name));
+            
+            if (agentNames.length === 0) {
+                 document.getElementById('timeline-tracks').innerHTML = '<p class="text-gray-500 p-4">No agents selected or no call data for the selected agents. Select agents and click "Update Timeline".</p>';
+                 document.getElementById('agent-labels').innerHTML = '';
+                 document.getElementById('callCount').textContent = `Total Calls Displayed: 0`;
+                 return;
+            }
+
             const timeRangeMs = timeMax.getTime() - timeMin.getTime();
             const tracksContainer = document.getElementById('timeline-tracks');
             const labelsContainer = document.getElementById('agent-labels');
@@ -341,10 +432,10 @@
 
 
             // 2. Render Agent Labels and Tracks
+            let totalCallsRendered = 0;
             agentNames.forEach(agentName => {
                 // Agent Label
                 const labelDiv = document.createElement('div');
-                // Removed h-12 to rely on CSS min-height for accurate 49px size
                 labelDiv.className = 'timeline-header-label flex items-center px-4 font-semibold text-gray-800'; 
                 labelDiv.textContent = agentName;
                 labelsContainer.appendChild(labelDiv);
@@ -355,6 +446,7 @@
                 
                 // Filter data for the current agent
                 const agentCalls = initialData.filter(d => d.agentName === agentName);
+                totalCallsRendered += agentCalls.length;
 
                 agentCalls.forEach(call => {
                     const startMs = call.callStart.getTime();
@@ -390,7 +482,7 @@ Result: ${call.raw.Result || 'N/A'}`;
             });
 
             // Update call count display
-            document.getElementById('callCount').textContent = `Total Calls Displayed: ${initialData.length}`;
+            document.getElementById('callCount').textContent = `Total Calls Displayed: ${totalCallsRendered}`;
             
             // Set up drag to scroll interaction
             setupDragToScroll();
@@ -469,6 +561,14 @@ Result: ${call.raw.Result || 'N/A'}`;
 
                 initialData = parsedData;
                 calculateTimeRange(initialData);
+
+                // 1. Get all unique agents found in the file
+                agentsAvailableInFile = Array.from(new Set(initialData.map(d => d.agentName))).sort();
+                
+                // 2. Populate the filter dropdown (automatically selects all)
+                populateAgentFilter();
+
+                // 3. Render the initial view (with all agents selected)
                 renderTimeline();
 
                 document.getElementById('visualization-area').style.display = 'block';
@@ -530,6 +630,11 @@ Result: ${call.raw.Result || 'N/A'}`;
             document.getElementById('zoomIn').addEventListener('click', () => handleZoom('in'));
             document.getElementById('zoomOut').addEventListener('click', () => handleZoom('out'));
             
+            // Filter Controls
+            document.getElementById('applyFilter').addEventListener('click', handleAgentFilterChange);
+            document.getElementById('clearSelection').addEventListener('click', handleClearSelection);
+
+
             console.log("App Initialized. Waiting for CSV file...");
         };
 
@@ -538,4 +643,4 @@ Result: ${call.raw.Result || 'N/A'}`;
     </script>
 </body>
 </html>
-Add initial timeline app HTML
+Improvement: Switched agent filter from multi-select to intuitive checkboxes
