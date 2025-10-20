@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Day Agent Statistics Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f9fb;
+            min-height: 100vh;
+        }
+        .table-header-cell {
+            cursor: pointer;
+            position: relative;
+            user-select: none;
+            padding-right: 20px !important; /* Space for sort icon */
+        }
+        .sort-icon {
+            position: absolute;
+            right: 5px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 0.8em;
+            opacity: 0.5;
+            transition: opacity 0.2s;
+        }
+        .table-header-cell.asc .sort-icon { opacity: 1; content: '▲'; }
+        .table-header-cell.desc .sort-icon { opacity: 1; content: '▼'; }
+        .table-header-cell:hover .sort-icon { opacity: 1; }
+
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.9);
+            z-index: 100;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border-radius: 0.5rem;
+        }
+        /* New Checkbox Panel Styles */
+        #checkbox-container {
+            max-height: 150px; /* Constrain height */
+            overflow-y: auto; /* Enable scrolling */
+            padding: 8px;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            background-color: #f8fafc;
+            width: 200px;
+        }
+        .agent-checkbox-item {
+            display: flex;
+            align-items: center;
+            padding: 2px 0;
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
+        .agent-checkbox-item:hover {
+            background-color: #eff6ff; /* Blue hover for clarity */
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body class="p-8">
+
+    <div id="app" class="max-w-7xl mx-auto">
+        <header class="mb-8 p-4 bg-white rounded-xl shadow-lg border-b-4 border-emerald-500">
+            <h1 class="text-3xl font-bold text-gray-800">Agent Performance Statistics Dashboard</h1>
+            <p class="text-gray-500 mt-1">Analyze agent averages across multiple days of call data.</p>
+        </header>
+
+        <!-- File Upload Area -->
+        <div id="drop-area" class="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center bg-white hover:border-emerald-400 transition cursor-pointer mb-8">
+            <input type="file" id="csvFile" accept=".csv" class="hidden">
+            <p class="text-lg font-medium text-gray-700">Drag & Drop your multi-day CSV file here, or click to select.</p>
+        </div>
+
+        <!-- Dashboard Container -->
+        <div id="dashboard-area" class="bg-white p-6 rounded-xl shadow-lg relative" style="min-height: 400px; display: none;">
+            <div id="loading-overlay" class="loading-overlay">
+                <svg class="animate-spin -ml-1 mr-3 h-8 w-8 text-emerald-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p class="mt-2 text-emerald-600 font-semibold">Analyzing multi-day data and calculating averages...</p>
+            </div>
+            
+            <div class="flex items-start justify-between mb-4">
+                 <h2 class="text-2xl font-semibold text-gray-700">Agent Daily Averages</h2>
+
+                 <!-- AGENT FILTER CONTROL PANEL -->
+                <div id="filter-controls" class="flex flex-col">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Select Agents:</label>
+                    <div id="checkbox-container">
+                        <!-- Checkboxes injected here -->
+                    </div>
+                    <div class="flex space-x-2 mt-2">
+                         <button id="applyFilter" class="px-3 py-2 flex-1 bg-emerald-500 text-white rounded-md hover:bg-emerald-600 transition font-medium text-sm">Update Metrics</button>
+                         <button id="clearSelection" class="px-3 py-2 flex-1 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition font-medium text-sm">Clear Selection</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="summary-metrics" class="text-sm text-gray-500 mb-4"></div>
+
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th id="sort-agent" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider table-header-cell" data-sort-key="agentName">Agent <span class="sort-icon"></span></th>
+                            <th id="sort-days" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider table-header-cell" data-sort-key="daysActive">Days Active <span class="sort-icon"></span></th>
+                            <th id="sort-inbound-count" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider table-header-cell" data-sort-key="avgInboundCount">Avg Inbound/Day <span class="sort-icon"></span></th>
+                            <th id="sort-inbound-time" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider table-header-cell" data-sort-key="avgInboundTime">Avg Inbound Time/Day <span class="sort-icon"></span></th>
+                            <th id="sort-outbound-count" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider table-header-cell" data-sort-key="avgOutboundCount">Avg Outbound/Day <span class="sort-icon"></span></th>
+                            <th id="sort-outbound-time" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider table-header-cell" data-sort-key="avgOutboundTime">Avg Outbound Time/Day <span class="sort-icon"></span></th>
+                            <th id="sort-off-phone" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider table-header-cell" data-sort-key="avgTimeOffPhone">Avg Time Off Phone/Day <span class="sort-icon"></span></th>
+                        </tr>
+                    </thead>
+                    <tbody id="stats-table-body" class="bg-white divide-y divide-gray-200">
+                        <!-- Data rows injected here -->
+                    </tbody>
+                </table>
+            </div>
+
+        </div>
+
+        <div id="status-message" class="mt-4 text-center text-red-500 font-medium hidden"></div>
+
+    </div>
+
+    <script>
+        // Global Constants (Matched to your visualization file)
+        const AGENT_LIST = [
+            "Dave", "David", "Marcos", "Tammy", "Alex Campos", "Alejandro", "Wanda", "Austin", "Cullen",
+            "Brandon", "Hayden", "Olivia", "Nate", "Brady", "Kimberly", "Duncan",
+            "Brendan", "Natasha", "John", "Joel"
+        ].map(name => name.toUpperCase());
+        
+        const WORKING_DAY_SECONDS = 8 * 60 * 60; // Assuming an 8-hour workday (8 hours * 60 min * 60 sec)
+
+        let initialData = []; // Holds the full parsed data after file load
+        let agentsAvailableInFile = []; // List of all agents found in the initialData
+        let agentsToDisplay = []; // List of agents selected in the filter
+
+        let agentStatistics = [];
+        let sortColumn = 'agentName';
+        let sortDirection = 'asc';
+
+        // Utility Functions
+        const extractAgentName = (nameWithNumber) => {
+            if (!nameWithNumber) return null;
+            const name = nameWithNumber.split('(')[0].trim().toUpperCase();
+            
+            for (const agent of AGENT_LIST) {
+                if (name.includes(agent)) {
+                    const matchedAgent = AGENT_LIST.find(n => name.includes(n));
+                    if (matchedAgent === "DAVID") return "David";
+                    if (matchedAgent === "DAVE") return "Dave";
+                    // Fallback to title case of the match for others
+                    return matchedAgent.replace(/\b\w/g, l => l.toUpperCase()); 
+                }
+            }
+            return null;
+        };
+        
+        const secondsToHms = (d) => {
+            d = Number(d);
+            const h = Math.floor(d / 3600);
+            const m = Math.floor(d % 3600 / 60);
+            const s = Math.floor(d % 3600 % 60);
+
+            const hDisplay = h > 0 ? h + "h " : "";
+            const mDisplay = m > 0 ? m + "m " : "";
+            const sDisplay = s > 0 ? s + "s" : "";
+            return hDisplay + mDisplay + sDisplay || "0s"; 
+        }
+
+        // --- Core Data Processing ---
+
+        const parseCSV = (csvText) => {
+            const lines = csvText.trim().split('\n');
+            if (lines.length < 2) return [];
+
+            const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+            const data = [];
+
+            const colIndices = {
+                fromName: headers.indexOf("From Name"),
+                toName: headers.indexOf("To Name"),
+                result: headers.indexOf("Result"),
+                callLength: headers.indexOf("Call Length"),
+                callStartTime: headers.indexOf("Call Start Time"),
+                direction: headers.indexOf("Call Direction")
+            };
+
+            for (let i = 1; i < lines.length; i++) {
+                const values = lines[i].split(',');
+                if (values.length !== headers.length) continue;
+                
+                const record = {};
+                headers.forEach((header, index) => {
+                    record[header] = values[index].trim().replace(/"/g, '');
+                });
+
+                const result = record[headers[colIndices.result]];
+                const duration = parseInt(record[headers[colIndices.callLength]] || 0, 10);
+                const direction = record[headers[colIndices.direction]];
+                const startTime = record[headers[colIndices.callStartTime]];
+
+                if ((result === "Connected" || result === "Answered") && duration > 0) {
+                    
+                    let agentName = null;
+                    
+                    const fromName = record[headers[colIndices.fromName]];
+                    const toName = record[headers[colIndices.toName]];
+
+                    // Determine Agent (same logic as timeline)
+                    if (direction === "Outbound") {
+                        agentName = extractAgentName(fromName);
+                    } else if (direction === "Inbound") {
+                        agentName = extractAgentName(toName) || extractAgentName(fromName);
+                    } else {
+                        agentName = extractAgentName(fromName) || extractAgentName(toName);
+                    }
+
+                    if (agentName && !agentName.toUpperCase().includes("DIRECT")) {
+                        const callStart = new Date(startTime);
+                        // Convert to YYYY-MM-DD for grouping
+                        const dateKey = callStart.toISOString().split('T')[0]; 
+                        
+                        data.push({
+                            agentName,
+                            direction,
+                            duration, // seconds
+                            dateKey,
+                        });
+                    }
+                }
+            }
+            return data;
+        };
+
+        const calculateStatistics = (data) => {
+            // Filter data to only include agents currently selected to display
+            const filteredData = data.filter(call => agentsToDisplay.includes(call.agentName));
+
+            const dailyStats = {}; // { AgentName: { DateKey: { inboundCount, outboundCount, inboundTime, outboundTime } } }
+            
+            filteredData.forEach(call => {
+                const { agentName, dateKey, direction, duration } = call;
+
+                if (!dailyStats[agentName]) {
+                    dailyStats[agentName] = {};
+                }
+                if (!dailyStats[agentName][dateKey]) {
+                    dailyStats[agentName][dateKey] = {
+                        inboundCount: 0,
+                        outboundCount: 0,
+                        inboundTime: 0,
+                        outboundTime: 0
+                    };
+                }
+
+                const dayStat = dailyStats[agentName][dateKey];
+                if (direction === 'Inbound') {
+                    dayStat.inboundCount++;
+                    dayStat.inboundTime += duration;
+                } else if (direction === 'Outbound') {
+                    dayStat.outboundCount++;
+                    dayStat.outboundTime += duration;
+                }
+            });
+
+            // Aggregate daily stats into final averages
+            const finalStats = [];
+            const allDates = new Set();
+            // Get all dates from the original, unfiltered data to establish total Work Days
+            initialData.forEach(d => allDates.add(d.dateKey));
+            const totalWorkDays = allDates.size || 1; 
+
+            for (const agentName in dailyStats) {
+                const agentDays = dailyStats[agentName];
+                const daysActive = Object.keys(agentDays).length;
+
+                let totalInboundCount = 0;
+                let totalOutboundCount = 0;
+                let totalInboundTime = 0;
+                let totalOutboundTime = 0;
+                let totalTalkTime = 0;
+
+                for (const dateKey in agentDays) {
+                    totalInboundCount += agentDays[dateKey].inboundCount;
+                    totalOutboundCount += agentDays[dateKey].outboundCount;
+                    totalInboundTime += agentDays[dateKey].inboundTime;
+                    totalOutboundTime += agentDays[dateKey].outboundTime;
+                }
+                
+                totalTalkTime = totalInboundTime + totalOutboundTime;
+                const totalWorkingSeconds = daysActive * WORKING_DAY_SECONDS;
+                const totalTimeOffPhone = Math.max(0, totalWorkingSeconds - totalTalkTime); // Max 0 in case agent works longer than 8hr day
+
+                const avgInboundCount = daysActive > 0 ? totalInboundCount / daysActive : 0;
+                const avgOutboundCount = daysActive > 0 ? totalOutboundCount / daysActive : 0;
+                const avgInboundTime = daysActive > 0 ? totalInboundTime / daysActive : 0;
+                const avgOutboundTime = daysActive > 0 ? totalOutboundTime / daysActive : 0;
+                const avgTimeOffPhone = daysActive > 0 ? totalTimeOffPhone / daysActive : 0;
+
+
+                finalStats.push({
+                    agentName,
+                    daysActive,
+                    avgInboundCount: parseFloat(avgInboundCount.toFixed(1)),
+                    avgOutboundCount: parseFloat(avgOutboundCount.toFixed(1)),
+                    avgInboundTime: avgInboundTime, // seconds
+                    avgOutboundTime: avgOutboundTime, // seconds
+                    avgTimeOffPhone: avgTimeOffPhone, // seconds
+                    totalWorkDays // context for the summary metric
+                });
+            }
+            return finalStats;
+        };
+
+        // --- Rendering and Sorting ---
+
+        const populateAgentFilter = () => {
+            const container = document.getElementById('checkbox-container');
+            container.innerHTML = ''; // Clear previous options
+            
+            agentsAvailableInFile.forEach(agentName => {
+                const itemDiv = document.createElement('label');
+                itemDiv.className = 'agent-checkbox-item';
+                itemDiv.htmlFor = `stat-agent-${agentName.replace(/\s/g, '-')}`;
+
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.id = `stat-agent-${agentName.replace(/\s/g, '-')}`;
+                checkbox.value = agentName;
+                checkbox.checked = true; // Select all by default
+                checkbox.className = 'mr-2 rounded text-emerald-600 focus:ring-emerald-500';
+
+                itemDiv.appendChild(checkbox);
+                itemDiv.appendChild(document.createTextNode(agentName));
+                container.appendChild(itemDiv);
+            });
+            
+            // Initialize agentsToDisplay to all available agents
+            agentsToDisplay = [...agentsAvailableInFile];
+        };
+
+        const handleAgentFilterChange = () => {
+            const checkboxes = document.querySelectorAll('#checkbox-container input[type="checkbox"]');
+            
+            agentsToDisplay = [];
+            checkboxes.forEach(checkbox => {
+                if (checkbox.checked) {
+                    agentsToDisplay.push(checkbox.value);
+                }
+            });
+            // Recalculate and re-render the stats based on the new selection
+            agentStatistics = calculateStatistics(initialData);
+            renderStatistics();
+        };
+
+        const handleClearSelection = () => {
+            const checkboxes = document.querySelectorAll('#checkbox-container input[type="checkbox"]');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = false;
+            });
+            // Re-run the filter change to update the dashboard
+            handleAgentFilterChange();
+        }
+
+        const renderStatistics = () => {
+            const tbody = document.getElementById('stats-table-body');
+            const summaryDiv = document.getElementById('summary-metrics');
+            tbody.innerHTML = '';
+            
+            if (agentStatistics.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="px-6 py-4 text-center text-gray-500">No agent data found or no agents selected.</td></tr>';
+                summaryDiv.textContent = ``;
+                return;
+            }
+
+            // Get total unique days from all records to display in the summary
+            const totalDays = initialData.length > 0 ? 
+                                Array.from(new Set(initialData.map(d => d.dateKey))).length : 
+                                0;
+            summaryDiv.textContent = `Analysis covers ${agentStatistics.length} selected agents across ${totalDays} total day(s) in the provided data.`;
+
+            // Sort data
+            const sortedStats = [...agentStatistics].sort((a, b) => {
+                let aValue = a[sortColumn];
+                let bValue = b[sortColumn];
+
+                // Special handling for string vs number sorting
+                if (typeof aValue === 'string') {
+                    aValue = aValue.toLowerCase();
+                    bValue = bValue.toLowerCase();
+                }
+
+                if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1;
+                if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1;
+                return 0;
+            });
+
+            // Update header class for visual feedback
+            document.querySelectorAll('.table-header-cell').forEach(th => {
+                th.classList.remove('asc', 'desc');
+                if (th.getAttribute('data-sort-key') === sortColumn) {
+                    th.classList.add(sortDirection);
+                }
+            });
+
+
+            // Render rows
+            sortedStats.forEach(stat => {
+                const row = document.createElement('tr');
+                row.className = 'hover:bg-gray-50';
+
+                const formatTime = (seconds) => secondsToHms(Math.round(seconds));
+
+                row.innerHTML = `
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${stat.agentName}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${stat.daysActive}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${stat.avgInboundCount.toFixed(1)}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-emerald-600 font-semibold">${formatTime(stat.avgInboundTime)}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${stat.avgOutboundCount.toFixed(1)}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-indigo-600 font-semibold">${formatTime(stat.avgOutboundTime)}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-red-500">${formatTime(stat.avgTimeOffPhone)}</td>
+                `;
+                tbody.appendChild(row);
+            });
+        };
+
+        const handleSort = (event) => {
+            const newSortColumn = event.currentTarget.getAttribute('data-sort-key');
+            
+            if (sortColumn === newSortColumn) {
+                sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+            } else {
+                sortColumn = newSortColumn;
+                sortDirection = 'asc';
+            }
+            renderStatistics();
+        };
+
+        // --- Event Handlers and Initialization ---
+
+        const handleFileLoad = (event) => {
+            document.getElementById('loading-overlay').style.display = 'flex';
+            document.getElementById('status-message').classList.add('hidden');
+            
+            const csvText = event.target.result;
+
+            try {
+                initialData = parseCSV(csvText); // Store full raw data
+
+                if (initialData.length === 0) {
+                    throw new Error("No valid connected call data found for the specified agents.");
+                }
+
+                // 1. Get all unique agents found in the file
+                agentsAvailableInFile = Array.from(new Set(initialData.map(d => d.agentName))).sort();
+
+                // 2. Populate the filter dropdown (automatically selects all)
+                populateAgentFilter();
+
+                // 3. Calculate and render initial stats (with all agents selected)
+                agentStatistics = calculateStatistics(initialData);
+
+                // Initial render, sorted by agent name
+                sortColumn = 'agentName';
+                sortDirection = 'asc';
+                renderStatistics();
+
+                document.getElementById('dashboard-area').style.display = 'block';
+                document.getElementById('drop-area').classList.add('hidden');
+
+            } catch (error) {
+                console.error("Data processing error:", error);
+                document.getElementById('status-message').textContent = `Error processing file: ${error.message}.`;
+                document.getElementById('status-message').classList.remove('hidden');
+            } finally {
+                document.getElementById('loading-overlay').style.display = 'none';
+            }
+        };
+
+        const initApp = () => {
+            const dropArea = document.getElementById('drop-area');
+            const fileInput = document.getElementById('csvFile');
+            
+            // File Input Listener
+            fileInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = handleFileLoad;
+                    reader.readAsText(file);
+                }
+            });
+
+            // Drag and Drop Listeners
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                dropArea.addEventListener(eventName, (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }, false);
+            });
+            
+            ['dragenter', 'dragover'].forEach(eventName => {
+                dropArea.addEventListener(eventName, () => dropArea.classList.add('border-emerald-500'), false);
+            });
+            
+            ['dragleave', 'drop'].forEach(eventName => {
+                dropArea.addEventListener(eventName, () => dropArea.classList.remove('border-emerald-500'), false);
+            });
+
+            dropArea.addEventListener('drop', (e) => {
+                const dt = e.dataTransfer;
+                const files = dt.files;
+                if (files.length) {
+                    fileInput.files = files;
+                    fileInput.dispatchEvent(new Event('change'));
+                }
+            }, false);
+
+            dropArea.addEventListener('click', () => {
+                fileInput.click();
+            });
+
+            // Sort Header Listeners
+            document.querySelectorAll('.table-header-cell').forEach(th => {
+                th.addEventListener('click', handleSort);
+            });
+
+            // Filter Controls
+            document.getElementById('applyFilter').addEventListener('click', handleAgentFilterChange);
+            document.getElementById('clearSelection').addEventListener('click', handleClearSelection);
+
+            console.log("Stats Dashboard Initialized. Waiting for CSV file...");
+        };
+
+        window.onload = initApp;
+
+    </script>
+</body>
+</html>
+Add multi-day Agent Statistics Dashboard
