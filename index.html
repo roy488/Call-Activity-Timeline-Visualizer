@@ -33,7 +33,7 @@
             border-radius: 4px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.1);
             transition: opacity 0.2s;
-            cursor: help;
+            cursor: pointer; /* Changed to pointer for interaction */
         }
         .timeline-bar:hover {
             opacity: 0.85;
@@ -116,8 +116,22 @@
                 <p class="mt-2 text-indigo-600 font-semibold">Processing data and building timeline...</p>
             </div>
             
+            <div id="call-tooltip" class="absolute z-50 p-3 bg-white border border-gray-300 rounded-lg shadow-xl transition-opacity duration-300 pointer-events-none" style="display: none; opacity: 0;">
+                <p class="font-semibold text-sm mb-1 text-gray-800" id="tooltip-agent"></p>
+                <p class="text-xs text-indigo-500" id="tooltip-direction"></p>
+                <p class="text-xs text-gray-600" id="tooltip-time"></p>
+                <p class="text-xs text-gray-600" id="tooltip-duration"></p>
+                <p class="text-xs text-gray-600" id="tooltip-result"></p>
+            </div>
+
             <div id="controls" class="flex items-start justify-between mb-4">
-                <h2 class="text-2xl font-semibold text-gray-700">Call Timeline</h2>
+                <div class="flex flex-col">
+                    <h2 class="text-2xl font-semibold text-gray-700">
+                        Call Timeline 
+                        <span id="filter-badge" class="bg-indigo-100 text-indigo-800 text-sm font-medium ml-2 px-2.5 py-0.5 rounded-full hidden"></span>
+                    </h2>
+                    <p id="date-range-summary" class="text-xs text-gray-400 mt-1"></p>
+                </div>
                 
                 <div class="flex items-end space-x-4">
                     <!-- AGENT FILTER CONTROL PANEL -->
@@ -177,7 +191,6 @@
     <script>
         // Global Constants
         const AGENT_LIST = [
-            // Updated to include David to catch variations of Dave's name in the raw data
             "Dave", "David", "Marcos", "Tammy", "Alex Campos", "Alejandro", "Wanda", "Austin", "Cullen",
             "Brandon", "Hayden", "Olivia", "Nate", "Brady", "Kimberly", "Duncan",
             "Brendan", "Natasha", "John", "Joel"
@@ -195,6 +208,15 @@
         let zoomLevel = 1.0; // Initial zoom level
         const ZOOM_STEP = 0.2;
 
+        // Tooltip element references
+        const tooltip = document.getElementById('call-tooltip');
+        const tooltipAgent = document.getElementById('tooltip-agent');
+        const tooltipDirection = document.getElementById('tooltip-direction');
+        const tooltipTime = document.getElementById('tooltip-time');
+        const tooltipDuration = document.getElementById('tooltip-duration');
+        const tooltipResult = document.getElementById('tooltip-result');
+
+
         // Utility Functions
         const extractAgentName = (nameWithNumber) => {
             if (!nameWithNumber) return null;
@@ -204,18 +226,9 @@
             // Check if the extracted name includes any of our specified agent names
             for (const agent of AGENT_LIST) {
                 if (name.includes(agent)) {
-                    // CRITICAL: Standardize the output name for display. 
-                    // If 'DAVID JONES' is found and matches 'DAVID', we display the original 'Dave' or 'David' from the list.
-                    
-                    // Simple logic to standardize short names: 
-                    // If it matches 'DAVID', we standardize to 'David'. If it matches 'DAVE', we standardize to 'Dave'.
-                    
-                    // Note: If we just map to the original agent list item, 'DAVID' from AGENT_LIST might be returned.
-                    
-                    // Let's use the actual match from AGENT_LIST to ensure consistent labeling
                     const matchedAgent = AGENT_LIST.find(n => name.includes(n));
-                    if (matchedAgent === "DAVID") return "David"; // Display name: David
-                    if (matchedAgent === "DAVE") return "Dave";   // Display name: Dave
+                    if (matchedAgent === "DAVID") return "David"; // Standardize display name
+                    if (matchedAgent === "DAVE") return "Dave";   // Standardize display name
 
                     // Fallback to title case of the match for others
                     return matchedAgent.replace(/\b\w/g, l => l.toUpperCase()); 
@@ -311,7 +324,8 @@
                             callStart,
                             callEnd,
                             duration,
-                            raw: record // Keep original data for tooltip
+                            raw: record, // Keep original data for tooltip
+                            agentSource // Added for context
                         });
                     }
                 }
@@ -385,17 +399,58 @@
             handleAgentFilterChange();
         }
         
+        // --- Custom Tooltip Handlers ---
+        const showTooltip = (e, call) => {
+            const bar = e.currentTarget;
+            
+            tooltipAgent.textContent = call.agentName;
+            tooltipDirection.textContent = call.direction === 'Outbound' ? 'OUTBOUND CALL' : 'INBOUND CALL';
+            tooltipTime.textContent = `Start Time: ${call.callStart.toLocaleTimeString()}`;
+            tooltipDuration.textContent = `Duration: ${secondsToHms(call.duration)}`;
+            tooltipResult.textContent = `Result: ${call.raw.Result || 'Connected'}`;
+            
+            // Positioning the tooltip relative to the mouse pointer
+            let x = e.pageX + 10;
+            let y = e.pageY + 10;
+
+            // Simple viewport boundary check
+            if (x + 200 > window.innerWidth) {
+                x = window.innerWidth - 210;
+            }
+            if (y + 150 > window.innerHeight) {
+                y = e.pageY - 120; // Move above the cursor
+            }
+
+            tooltip.style.left = `${x}px`;
+            tooltip.style.top = `${y}px`;
+            tooltip.style.opacity = 1;
+            tooltip.style.display = 'block';
+        };
+
+        const hideTooltip = () => {
+            tooltip.style.opacity = 0;
+            tooltip.style.display = 'none';
+        };
+        
         // --- Core Rendering Logic (Updated to use agentsToDisplay) ---
 
         const renderTimeline = () => {
             if (initialData.length === 0 || !timeMin || !timeMax) {
                 document.getElementById('timeline-tracks').innerHTML = '<p class="text-gray-500 p-4">No agent call data found after filtering. Please check your CSV file.</p>';
+                document.getElementById('filter-badge').classList.add('hidden');
+                document.getElementById('agent-labels').innerHTML = '';
+                document.getElementById('callCount').textContent = `Total Calls Displayed: 0`;
                 return;
             }
 
             // Agents to render are based on the selection filter
             const agentNames = agentsAvailableInFile.filter(name => agentsToDisplay.includes(name));
             
+            // --- Update Filter Badge ---
+            const badge = document.getElementById('filter-badge');
+            badge.textContent = `${agentsToDisplay.length} Agents Selected`;
+            badge.classList.remove('hidden');
+
             if (agentNames.length === 0) {
                  document.getElementById('timeline-tracks').innerHTML = '<p class="text-gray-500 p-4">No agents selected or no call data for the selected agents. Select agents and click "Update Timeline".</p>';
                  document.getElementById('agent-labels').innerHTML = '';
@@ -410,15 +465,14 @@
             tracksContainer.innerHTML = '';
             labelsContainer.innerHTML = '';
 
-            // Set the width based on zoom level (e.g., 800px * zoomLevel)
-            const baseWidth = 1200; // Base width in pixels for a comfortable view
+            // Set the width based on zoom level
+            const baseWidth = 1200; 
             tracksContainer.style.width = `${baseWidth * zoomLevel}px`;
             tracksContainer.style.minWidth = `400px`;
             
             // 1. Render Time Header
             const headerRow = document.createElement('div');
             // Adding a placeholder above the labels to align the header time
-            // The placeholder needs to match the height of the agent label rows (49px)
             const labelPlaceholder = document.createElement('div');
             labelPlaceholder.className = 'timeline-header-label bg-gray-100/50 text-xs text-gray-400 font-normal justify-end';
             labelPlaceholder.textContent = 'Time Axis ↓';
@@ -431,6 +485,10 @@
             // Add Time Labels
             const timeHeaderTrack = document.createElement('div');
             timeHeaderTrack.className = 'flex w-full h-12 border-b-2 border-gray-400';
+            
+            // Calculate first call time for auto-scroll
+            const firstCallTimeMs = initialData.length > 0 ? initialData.reduce((min, d) => Math.min(min, d.callStart.getTime()), Infinity) : timeMin.getTime();
+
 
             for (let i = 0; i <= hours; i++) {
                 const time = new Date(timeMin.getTime() + i * 60 * 60 * 1000);
@@ -439,7 +497,9 @@
                 timeLabel.style.width = `${100 / hours}%`;
                 
                 // Format time as HH:MM AM/PM
-                timeLabel.innerHTML = `<span class="absolute top-0 transform -translate-x-1/2">${time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}</span>`;
+                const timeString = time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+                timeLabel.innerHTML = `<span class="absolute top-0 transform -translate-x-1/2">${timeString}</span>`;
                 timeHeaderTrack.appendChild(timeLabel);
             }
             tracksContainer.appendChild(timeHeaderTrack);
@@ -481,14 +541,11 @@
                     barDiv.style.left = `${left}%`;
                     barDiv.style.width = `${width}%`;
                     
-                    // Tooltip data
-                    const tooltipText = `Direction: ${call.direction}
-Start: ${call.callStart.toLocaleTimeString()}
-Duration: ${secondsToHms(call.duration)}
-Result: ${call.raw.Result || 'N/A'}`;
-
-                    barDiv.title = tooltipText;
-
+                    // Attach custom tooltip events
+                    barDiv.addEventListener('mouseenter', (e) => showTooltip(e, call));
+                    barDiv.addEventListener('mousemove', (e) => showTooltip(e, call)); // Update position on move
+                    barDiv.addEventListener('mouseleave', hideTooltip);
+                    
                     trackDiv.appendChild(barDiv);
                 });
 
@@ -498,6 +555,15 @@ Result: ${call.raw.Result || 'N/A'}`;
             // Update call count display
             document.getElementById('callCount').textContent = `Total Calls Displayed: ${totalCallsRendered}`;
             
+            // 3. Auto-scroll to the first call position
+            const scrollWrapper = document.getElementById('timeline-scroll-wrapper');
+            const tracksContainerWidth = tracksContainer.offsetWidth; 
+            const offsetPercentage = (firstCallTimeMs - timeMin.getTime()) / timeRangeMs;
+            const scrollPosition = offsetPercentage * tracksContainerWidth;
+
+            // Scroll to the calculated position, minus some padding (e.g., 100 pixels)
+            scrollWrapper.scrollLeft = Math.max(0, scrollPosition - 100);
+
             // Set up drag to scroll interaction
             setupDragToScroll();
         };
@@ -575,6 +641,12 @@ Result: ${call.raw.Result || 'N/A'}`;
 
                 initialData = parsedData;
                 calculateTimeRange(initialData);
+
+                // --- Date Range Summary ---
+                const start = timeMin.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                const end = timeMax.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                document.getElementById('date-range-summary').textContent = `Timeline from ${start} to ${end}`;
+
 
                 // 1. Get all unique agents found in the file
                 agentsAvailableInFile = Array.from(new Set(initialData.map(d => d.agentName))).sort();
@@ -657,4 +729,4 @@ Result: ${call.raw.Result || 'N/A'}`;
     </script>
 </body>
 </html>
-Improvement: Switched agent filter from multi-select to intuitive checkboxes
+updated appearance
