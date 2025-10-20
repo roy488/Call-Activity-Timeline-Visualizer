@@ -120,7 +120,7 @@
                 <h2 class="text-2xl font-semibold text-gray-700">Call Timeline</h2>
                 
                 <div class="flex items-end space-x-4">
-                    <!-- NEW AGENT FILTER CONTROL PANEL -->
+                    <!-- AGENT FILTER CONTROL PANEL -->
                     <div id="filter-controls" class="flex flex-col">
                         <label class="block text-sm font-medium text-gray-700 mb-1">Select Agents:</label>
                         <div id="checkbox-container">
@@ -177,7 +177,8 @@
     <script>
         // Global Constants
         const AGENT_LIST = [
-            "Dave", "Marcos", "Tammy", "Alex Campos", "Alejandro", "Wanda", "Austin", "Cullen",
+            // Updated to include David to catch variations of Dave's name in the raw data
+            "Dave", "David", "Marcos", "Tammy", "Alex Campos", "Alejandro", "Wanda", "Austin", "Cullen",
             "Brandon", "Hayden", "Olivia", "Nate", "Brady", "Kimberly", "Duncan",
             "Brendan", "Natasha", "John", "Joel"
         ].map(name => name.toUpperCase());
@@ -199,12 +200,25 @@
             if (!nameWithNumber) return null;
             // Extract the name part before the first parenthesis and trim whitespace
             const name = nameWithNumber.split('(')[0].trim().toUpperCase();
-            // Check if the name (or part of it) matches an agent
+            
+            // Check if the extracted name includes any of our specified agent names
             for (const agent of AGENT_LIST) {
                 if (name.includes(agent)) {
-                    // Return the standardized name from the list for consistent labeling
-                    return AGENT_LIST.find(n => name.includes(n))
-                                     .replace(/\b\w/g, l => l.toUpperCase()); // Simple title case
+                    // CRITICAL: Standardize the output name for display. 
+                    // If 'DAVID JONES' is found and matches 'DAVID', we display the original 'Dave' or 'David' from the list.
+                    
+                    // Simple logic to standardize short names: 
+                    // If it matches 'DAVID', we standardize to 'David'. If it matches 'DAVE', we standardize to 'Dave'.
+                    
+                    // Note: If we just map to the original agent list item, 'DAVID' from AGENT_LIST might be returned.
+                    
+                    // Let's use the actual match from AGENT_LIST to ensure consistent labeling
+                    const matchedAgent = AGENT_LIST.find(n => name.includes(n));
+                    if (matchedAgent === "DAVID") return "David"; // Display name: David
+                    if (matchedAgent === "DAVE") return "Dave";   // Display name: Dave
+
+                    // Fallback to title case of the match for others
+                    return matchedAgent.replace(/\b\w/g, l => l.toUpperCase()); 
                 }
             }
             return null;
