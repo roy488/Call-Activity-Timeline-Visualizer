@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent Call Activity Timeline</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles for the sleek timeline visualizer */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f9fb; /* Light background */
+            min-height: 100vh;
+        }
+        .timeline-container {
+            position: relative;
+            overflow-x: auto;
+            max-width: 100%;
+            cursor: grab;
+        }
+        /* --- FIX: Ensured exact height and border consistency for alignment --- */
+        .timeline-track {
+            position: relative;
+            height: 49px; /* Explicit height (48px content + 1px border) */
+            border-bottom: 1px solid #e0e7ff;
+            display: flex;
+            align-items: center;
+        }
+        .timeline-bar {
+            position: absolute;
+            height: 70%;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            transition: opacity 0.2s;
+            cursor: help;
+        }
+        .timeline-bar:hover {
+            opacity: 0.85;
+            z-index: 10;
+        }
+        /* --- FIX: Matched height and border of the track exactly --- */
+        .timeline-header-label {
+            position: sticky;
+            left: 0;
+            z-index: 20;
+            background: #ffffff;
+            border-right: 1px solid #cbd5e1;
+            border-bottom: 1px solid #e0e7ff; /* CRITICAL: Matches the track border */
+            min-width: 150px;
+            min-height: 49px; /* CRITICAL: Matches the track height */
+            padding-right: 16px;
+            display: flex; /* Ensure it stays a flex item */
+            align-items: center; /* Vertical centering */
+            box-shadow: 2px 0 5px rgba(0,0,0,0.05);
+        }
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.9);
+            z-index: 100;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border-radius: 0.5rem;
+        }
+    </style>
+</head>
+<body class="p-8">
+
+    <div id="app" class="max-w-7xl mx-auto">
+        <header class="mb-8 p-4 bg-white rounded-xl shadow-lg border-b-4 border-indigo-500">
+            <h1 class="text-3xl font-bold text-gray-800">Agent Call Timeline Analyzer</h1>
+            <p class="text-gray-500 mt-1">Visualize call duration and direction for your agents on a responsive timeline.</p>
+        </header>
+
+        <!-- File Upload Area -->
+        <div id="drop-area" class="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center bg-white hover:border-indigo-400 transition cursor-pointer mb-8">
+            <input type="file" id="csvFile" accept=".csv" class="hidden">
+            <p class="text-lg font-medium text-gray-700">Drag & Drop your CSV file here, or click to select.</p>
+            <p class="text-sm text-gray-400 mt-1">File: RingCentral_PR_Calls_Calls_10_20_2025_12_24_26_PM.csv</p>
+        </div>
+
+        <!-- Visualization Controls and Container -->
+        <div id="visualization-area" class="bg-white p-6 rounded-xl shadow-lg relative" style="min-height: 400px; display: none;">
+            <div id="loading-overlay" class="loading-overlay">
+                <svg class="animate-spin -ml-1 mr-3 h-8 w-8 text-indigo-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p class="mt-2 text-indigo-600 font-semibold">Processing data and building timeline...</p>
+            </div>
+            
+            <div id="controls" class="flex items-center justify-between mb-4">
+                <h2 class="text-2xl font-semibold text-gray-700">Call Timeline</h2>
+                <div class="flex space-x-4">
+                    <button id="zoomOut" class="px-3 py-1 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition">- Zoom</button>
+                    <button id="zoomIn" class="px-3 py-1 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition">+ Zoom</button>
+                </div>
+            </div>
+
+            <!-- Legend -->
+            <div class="flex space-x-6 mb-6 text-sm">
+                <div class="flex items-center">
+                    <span class="w-4 h-4 rounded-full bg-indigo-500 mr-2"></span>
+                    <span class="text-gray-600">Outbound Call</span>
+                </div>
+                <div class="flex items-center">
+                    <span class="w-4 h-4 rounded-full bg-emerald-500 mr-2"></span>
+                    <span class="text-gray-600">Inbound Call</span>
+                </div>
+                <div class="flex items-center">
+                    <span id="callCount" class="font-bold text-gray-800"></span>
+                </div>
+            </div>
+            
+            <!-- Timeline Rendering Area -->
+            <div class="flex">
+                <!-- Agent Labels (Fixed Width) -->
+                <div id="agent-labels" class="flex-shrink-0">
+                    <!-- Labels injected here -->
+                </div>
+
+                <!-- Timeline Tracks (Scrollable) -->
+                <div id="timeline-scroll-wrapper" class="timeline-container flex-grow">
+                    <div id="timeline-tracks" style="min-width: 100%;">
+                        <!-- Time Headers and Call Bars injected here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="status-message" class="mt-4 text-center text-red-500 font-medium hidden"></div>
+
+    </div>
+
+    <script>
+        // Global Constants
+        const AGENT_LIST = [
+            "Dave", "Marcos", "Tammy", "Alex Campos", "Alejandro", "Wanda", "Austin", "Cullen",
+            "Brandon", "Hayden", "Olivia", "Nate", "Brady", "Kimberly", "Duncan",
+            "Brendan", "Natasha", "John", "Joel"
+        ].map(name => name.toUpperCase());
+
+        const EXPECTED_CSV_HEADERS = [
+            "From Name", "To Name", "Result", "Call Length", "Call Start Time", "Call Direction"
+        ];
+        
+        let initialData = [];
+        let timeMin = null;
+        let timeMax = null;
+        let zoomLevel = 1.0; // Initial zoom level
+        const ZOOM_STEP = 0.2;
+
+        // Utility Functions
+        const extractAgentName = (nameWithNumber) => {
+            if (!nameWithNumber) return null;
+            // Extract the name part before the first parenthesis and trim whitespace
+            const name = nameWithNumber.split('(')[0].trim().toUpperCase();
+            // Check if the name (or part of it) matches an agent
+            for (const agent of AGENT_LIST) {
+                if (name.includes(agent)) {
+                    // Return the standardized name from the list for consistent labeling
+                    // We need to find the exact match in the mixed case format for display
+                    return AGENT_LIST.find(n => name.includes(n))
+                                     .replace(/\b\w/g, l => l.toUpperCase()); // Simple title case
+                }
+            }
+            return null;
+        };
+
+        const secondsToHms = (d) => {
+            d = Number(d);
+            const h = Math.floor(d / 3600);
+            const m = Math.floor(d % 3600 / 60);
+            const s = Math.floor(d % 3600 % 60);
+
+            const hDisplay = h > 0 ? h + "h " : "";
+            const mDisplay = m > 0 ? m + "m " : "";
+            const sDisplay = s > 0 ? s + "s" : "";
+            return hDisplay + mDisplay + sDisplay; 
+        }
+
+        // --- Core Data Processing ---
+
+        const parseCSV = (csvText) => {
+            const lines = csvText.trim().split('\n');
+            if (lines.length < 2) return [];
+
+            // Simple CSV parser assuming no commas inside quoted fields (common for RingCentral)
+            const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+            const data = [];
+
+            // Find required column indices
+            const colIndices = {
+                fromName: headers.indexOf("From Name"),
+                toName: headers.indexOf("To Name"),
+                result: headers.indexOf("Result"),
+                callLength: headers.indexOf("Call Length"),
+                callStartTime: headers.indexOf("Call Start Time"),
+                direction: headers.indexOf("Call Direction")
+            };
+
+            for (let i = 1; i < lines.length; i++) {
+                const values = lines[i].split(',');
+                if (values.length !== headers.length) continue; // Skip malformed rows
+                
+                const record = {};
+                headers.forEach((header, index) => {
+                    record[header] = values[index].trim().replace(/"/g, '');
+                });
+
+                // Apply initial filters and transformation
+                const result = record[headers[colIndices.result]];
+                const duration = parseInt(record[headers[colIndices.callLength]] || 0, 10);
+                const direction = record[headers[colIndices.direction]];
+                const startTime = record[headers[colIndices.callStartTime]];
+
+                // 1. Filter: Must be Connected or Answered, and have duration > 0
+                if ((result === "Connected" || result === "Answered") && duration > 0) {
+                    
+                    let agentName = null;
+                    let agentSource = null; // 'From' or 'To'
+
+                    // 2. Determine Agent: Prioritize From Name for Outbound, To Name for Inbound
+                    const fromName = record[headers[colIndices.fromName]];
+                    const toName = record[headers[colIndices.toName]];
+
+                    if (direction === "Outbound") {
+                        agentName = extractAgentName(fromName);
+                        if (agentName) agentSource = 'From';
+                    } else if (direction === "Inbound") {
+                         // Check To Name first for who answered
+                        agentName = extractAgentName(toName);
+                        if (agentName) agentSource = 'To';
+                        // Fallback check on From Name if To Name didn't yield an agent (e.g., if agent was the queue target)
+                        if (!agentName) {
+                            agentName = extractAgentName(fromName);
+                            if (agentName) agentSource = 'From';
+                        }
+                    } else {
+                        // For other directions, check both
+                        agentName = extractAgentName(fromName) || extractAgentName(toName);
+                        if (extractAgentName(fromName)) agentSource = 'From';
+                        else if (extractAgentName(toName)) agentSource = 'To';
+                    }
+
+                    // 3. Filter: Must be a recognized agent and not contain "Direct" (case-insensitive)
+                    if (agentName && !agentName.toUpperCase().includes("DIRECT")) {
+                        const callStart = new Date(startTime);
+                        const callEnd = new Date(callStart.getTime() + duration * 1000);
+                        
+                        data.push({
+                            agentName,
+                            direction,
+                            callStart,
+                            callEnd,
+                            duration,
+                            raw: record // Keep original data for tooltip
+                        });
+                    }
+                }
+            }
+            return data;
+        };
+
+        const calculateTimeRange = (data) => {
+            if (data.length === 0) return;
+
+            let min = data[0].callStart.getTime();
+            let max = data[0].callEnd.getTime();
+
+            data.forEach(d => {
+                if (d.callStart.getTime() < min) min = d.callStart.getTime();
+                if (d.callEnd.getTime() > max) max = d.callEnd.getTime();
+            });
+
+            // Adjust min/max to round to the nearest hour for cleaner timeline axes
+            timeMin = new Date(min);
+            timeMax = new Date(max);
+
+            timeMin.setMinutes(0, 0, 0); // Start of the hour
+            timeMax.setHours(timeMax.getHours() + 1); // End of the next hour
+            timeMax.setMinutes(0, 0, 0); 
+        };
+        
+        // --- Core Rendering Logic ---
+
+        const renderTimeline = () => {
+            if (initialData.length === 0 || !timeMin || !timeMax) {
+                document.getElementById('timeline-tracks').innerHTML = '<p class="text-gray-500 p-4">No agent call data found after filtering. Please check your CSV file.</p>';
+                return;
+            }
+
+            // Agents are sorted alphabetically for consistent track order
+            const agentNames = Array.from(new Set(initialData.map(d => d.agentName))).sort();
+            const timeRangeMs = timeMax.getTime() - timeMin.getTime();
+            const tracksContainer = document.getElementById('timeline-tracks');
+            const labelsContainer = document.getElementById('agent-labels');
+            
+            tracksContainer.innerHTML = '';
+            labelsContainer.innerHTML = '';
+
+            // Set the width based on zoom level (e.g., 800px * zoomLevel)
+            const baseWidth = 1200; // Base width in pixels for a comfortable view
+            tracksContainer.style.width = `${baseWidth * zoomLevel}px`;
+            tracksContainer.style.minWidth = `400px`;
+            
+            // 1. Render Time Header
+            const headerRow = document.createElement('div');
+            // Adding a placeholder above the labels to align the header time
+            // The placeholder needs to match the height of the agent label rows (49px)
+            const labelPlaceholder = document.createElement('div');
+            labelPlaceholder.className = 'timeline-header-label bg-gray-100/50 text-xs text-gray-400 font-normal justify-end';
+            labelPlaceholder.textContent = 'Time Axis ↓';
+            labelsContainer.appendChild(labelPlaceholder);
+
+
+            headerRow.className = 'flex w-full h-8 border-b-2 border-gray-400 mb-2';
+            const hours = (timeMax.getTime() - timeMin.getTime()) / (1000 * 60 * 60);
+
+            // Add Time Labels
+            const timeHeaderTrack = document.createElement('div');
+            timeHeaderTrack.className = 'flex w-full h-12 border-b-2 border-gray-400';
+
+            for (let i = 0; i <= hours; i++) {
+                const time = new Date(timeMin.getTime() + i * 60 * 60 * 1000);
+                const timeLabel = document.createElement('div');
+                timeLabel.className = 'text-xs text-gray-500 pt-1 text-center border-l border-dashed border-gray-300 relative';
+                timeLabel.style.width = `${100 / hours}%`;
+                
+                // Format time as HH:MM AM/PM
+                timeLabel.innerHTML = `<span class="absolute top-0 transform -translate-x-1/2">${time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}</span>`;
+                timeHeaderTrack.appendChild(timeLabel);
+            }
+            tracksContainer.appendChild(timeHeaderTrack);
+
+
+            // 2. Render Agent Labels and Tracks
+            agentNames.forEach(agentName => {
+                // Agent Label
+                const labelDiv = document.createElement('div');
+                // Removed h-12 to rely on CSS min-height for accurate 49px size
+                labelDiv.className = 'timeline-header-label flex items-center px-4 font-semibold text-gray-800'; 
+                labelDiv.textContent = agentName;
+                labelsContainer.appendChild(labelDiv);
+
+                // Track Row
+                const trackDiv = document.createElement('div');
+                trackDiv.className = 'timeline-track hover:bg-indigo-50 transition';
+                
+                // Filter data for the current agent
+                const agentCalls = initialData.filter(d => d.agentName === agentName);
+
+                agentCalls.forEach(call => {
+                    const startMs = call.callStart.getTime();
+                    const endMs = call.callEnd.getTime();
+                    const totalRangeMs = timeMax.getTime() - timeMin.getTime();
+
+                    // Calculate position and width as percentage of the total time range
+                    const left = ((startMs - timeMin.getTime()) / totalRangeMs) * 100;
+                    const width = ((endMs - startMs) / totalRangeMs) * 100;
+
+                    const barDiv = document.createElement('div');
+                    
+                    const directionClass = call.direction === 'Outbound' 
+                        ? 'bg-indigo-500' 
+                        : 'bg-emerald-500';
+
+                    barDiv.className = `timeline-bar ${directionClass}`;
+                    barDiv.style.left = `${left}%`;
+                    barDiv.style.width = `${width}%`;
+                    
+                    // Tooltip data
+                    const tooltipText = `Direction: ${call.direction}
+Start: ${call.callStart.toLocaleTimeString()}
+Duration: ${secondsToHms(call.duration)}
+Result: ${call.raw.Result || 'N/A'}`;
+
+                    barDiv.title = tooltipText;
+
+                    trackDiv.appendChild(barDiv);
+                });
+
+                tracksContainer.appendChild(trackDiv);
+            });
+
+            // Update call count display
+            document.getElementById('callCount').textContent = `Total Calls Displayed: ${initialData.length}`;
+            
+            // Set up drag to scroll interaction
+            setupDragToScroll();
+        };
+
+        const setupDragToScroll = () => {
+            const container = document.getElementById('timeline-scroll-wrapper');
+            let isDown = false;
+            let startX;
+            let scrollLeft;
+
+            container.addEventListener('mousedown', (e) => {
+                isDown = true;
+                container.classList.add('active');
+                startX = e.pageX - container.offsetLeft;
+                scrollLeft = container.scrollLeft;
+            });
+
+            container.addEventListener('mouseleave', () => {
+                isDown = false;
+                container.classList.remove('active');
+            });
+
+            container.addEventListener('mouseup', () => {
+                isDown = false;
+                container.classList.remove('active');
+            });
+
+            container.addEventListener('mousemove', (e) => {
+                if (!isDown) return;
+                e.preventDefault();
+                const x = e.pageX - container.offsetLeft;
+                const walk = (x - startX); // The walk is the distance moved
+                container.scrollLeft = scrollLeft - walk;
+            });
+
+            // Add touch support for mobile
+            container.addEventListener('touchstart', (e) => {
+                isDown = true;
+                startX = e.touches[0].pageX - container.offsetLeft;
+                scrollLeft = container.scrollLeft;
+            });
+            container.addEventListener('touchmove', (e) => {
+                if (!isDown) return;
+                const x = e.touches[0].pageX - container.offsetLeft;
+                const walk = (x - startX);
+                container.scrollLeft = scrollLeft - walk;
+            });
+            container.addEventListener('touchend', () => {
+                isDown = false;
+            });
+        };
+
+        const handleZoom = (direction) => {
+            if (direction === 'in') {
+                zoomLevel += ZOOM_STEP;
+            } else if (direction === 'out') {
+                zoomLevel = Math.max(1.0, zoomLevel - ZOOM_STEP); // Prevent zooming out too far
+            }
+            renderTimeline();
+        };
+
+        // --- Event Handlers and Initialization ---
+
+        const handleFileLoad = (event) => {
+            document.getElementById('loading-overlay').style.display = 'flex';
+            document.getElementById('status-message').classList.add('hidden');
+            
+            const csvText = event.target.result;
+
+            try {
+                const parsedData = parseCSV(csvText);
+                if (parsedData.length === 0) {
+                    throw new Error("No valid call data found for the specified agents.");
+                }
+
+                initialData = parsedData;
+                calculateTimeRange(initialData);
+                renderTimeline();
+
+                document.getElementById('visualization-area').style.display = 'block';
+                document.getElementById('drop-area').classList.add('hidden');
+
+            } catch (error) {
+                console.error("Data processing error:", error);
+                document.getElementById('status-message').textContent = `Error processing file: ${error.message}.`;
+                document.getElementById('status-message').classList.remove('hidden');
+            } finally {
+                document.getElementById('loading-overlay').style.display = 'none';
+            }
+        };
+
+        const initApp = () => {
+            const dropArea = document.getElementById('drop-area');
+            const fileInput = document.getElementById('csvFile');
+            
+            // File Input Listener
+            fileInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = handleFileLoad;
+                    reader.readAsText(file);
+                }
+            });
+
+            // Drag and Drop Listeners
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                dropArea.addEventListener(eventName, (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }, false);
+            });
+            
+            ['dragenter', 'dragover'].forEach(eventName => {
+                dropArea.addEventListener(eventName, () => dropArea.classList.add('border-indigo-500'), false);
+            });
+            
+            ['dragleave', 'drop'].forEach(eventName => {
+                dropArea.addEventListener(eventName, () => dropArea.classList.remove('border-indigo-500'), false);
+            });
+
+            dropArea.addEventListener('drop', (e) => {
+                const dt = e.dataTransfer;
+                const files = dt.files;
+                if (files.length) {
+                    fileInput.files = files;
+                    fileInput.dispatchEvent(new Event('change'));
+                }
+            }, false);
+
+            dropArea.addEventListener('click', () => {
+                fileInput.click();
+            });
+
+            // Zoom Controls
+            document.getElementById('zoomIn').addEventListener('click', () => handleZoom('in'));
+            document.getElementById('zoomOut').addEventListener('click', () => handleZoom('out'));
+            
+            console.log("App Initialized. Waiting for CSV file...");
+        };
+
+        window.onload = initApp;
+
+    </script>
+</body>
+</html>
+Add initial timeline app HTML
