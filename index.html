@@ -124,6 +124,7 @@
     <script>
         // --- Constants ---
         const VALID_RESULTS_CONNECTED = ["Connected", "Answered"];
+        const VALID_RESULTS_TRANSFERRED = ["Transferred", "Transferred / To Voicemail"]; // MODIFIED: ADDED TRANSFER RESULTS
         
         // --- UPDATED AGENT LIST ---
         const AGENT_LIST = [
@@ -275,7 +276,7 @@
                 const callLength = parseInt(row[colIndex.callLength]) || 0;
                 if (callLength === 0) continue;
                 
-                // --- LOGIC: DETERMINE IF CALL IS VALID PRODUCTIVE TIME AND ITS TYPE ---
+                // --- LOGIC: DETERMINE IF CALL IS VALID PRODUCTIVE TIME AND ITS TYPE (MODIFIED TO INCLUDE TRANSFERS) ---
                 let isValidCall = false;
                 let callType = 'Attempted'; 
 
@@ -283,6 +284,9 @@
                     // Connected or Answered (Standard Productive Time)
                     isValidCall = true;
                     callType = direction === 'Outbound' ? 'ConnectedOutbound' : 'ConnectedInbound';
+                } else if (VALID_RESULTS_TRANSFERRED.includes(result)) { // NEW: Handle Transfers
+                    isValidCall = true;
+                    callType = 'Transferred';
                 } else if (direction === 'Outbound') {
                     // Outbound attempt with a duration (Agent was actively dialing/waiting)
                     isValidCall = true;
@@ -324,7 +328,10 @@
                 }
                 const stats = agentProductivity.get(agentName);
                 stats.totalCalls += 1;
-                if (direction === 'Inbound') {
+                
+                // Transfers are counted as productive time, and are generally logged as "Inbound" activity 
+                // for the agent who initiated the transfer, or for the agent receiving the transfer.
+                if (direction === 'Inbound' || call.callType === 'Transferred') {
                     stats.inboundTime += productiveTime;
                 } else {
                     stats.outboundTime += productiveTime;
@@ -546,12 +553,14 @@
 
                         const bar = document.createElement('div');
                         
-                        // --- New Color Logic ---
+                        // --- New Color Logic (MODIFIED TO INCLUDE TRANSFERS) ---
                         let bgColor = 'bg-gray-400';
                         if (call.callType === 'ConnectedInbound') {
                             bgColor = 'bg-green-500';
                         } else if (call.callType === 'ConnectedOutbound') {
                             bgColor = 'bg-blue-500';
+                        } else if (call.callType === 'Transferred') {
+                            bgColor = 'bg-yellow-500'; // Yellow for Transfers
                         } else if (call.callType === 'OutboundAttempt') {
                             bgColor = 'bg-blue-300'; // Light Blue for active dialing/attempt
                         }
@@ -603,14 +612,17 @@
             const bar = e.currentTarget;
             
             let directionLabel = bar.dataset.direction;
-            if (!VALID_RESULTS_CONNECTED.includes(bar.dataset.result)) {
+            if (VALID_RESULTS_TRANSFERRED.includes(bar.dataset.result)) {
+                directionLabel = 'Transfer';
+            } else if (!VALID_RESULTS_CONNECTED.includes(bar.dataset.result)) {
                 directionLabel = 'Outbound Attempt';
             }
+
 
             tooltip.innerHTML = `
                 <div class="text-sm font-bold text-white mb-1">${bar.dataset.agent}</div>
                 <div class="text-xs text-gray-300">
-                    <p><strong>Direction:</strong> ${directionLabel}</p>
+                    <p><strong>Type:</strong> ${directionLabel}</p>
                     <p><strong>Result:</strong> ${bar.dataset.result}</p>
                     <p><strong>Start Time:</strong> ${bar.dataset.start}</p>
                     <p><strong>Duration:</strong> ${bar.dataset.duration}</p>
@@ -712,4 +724,4 @@
     </script>
 </body>
 </html>
-final update 10.20
+final update 10.24
