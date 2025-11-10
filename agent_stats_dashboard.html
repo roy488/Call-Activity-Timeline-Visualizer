@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Multi-Day Agent Statistics Dashboard</title>
+  <title>Multi-Day Agent Statistics Dashboard (Fixed)</title>
 
   <!-- SheetJS Library for reading .xlsx files -->
   <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
@@ -44,7 +44,7 @@
 
     <div id="drop-area" class="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center bg-white hover:border-emerald-400 transition cursor-pointer mb-8">
       <input type="file" id="dataFileInput" accept=".xlsx,.xlsm,.xls,.csv" class="hidden">
-      <p id="drop-text" class="text-lg font-medium text-gray-700">**DROP ORIGINAL XLSX FILE HERE**</p>
+      <p id="drop-text" class="text-lg font-medium text-gray-700"><strong>DROP ORIGINAL XLSX FILE HERE</strong></p>
     </div>
 
     <div id="dashboard-area" class="bg-white p-6 rounded-xl shadow-lg relative" style="min-height: 400px; display: none;">
@@ -99,7 +99,7 @@
     const SHEET_NAME_TO_FIND = "Users";
     const AGENT_DATA_START_KEYWORD = "Name";
 
-    // RingCentral Users sheet column order (after CSV conversion)
+    // RingCentral Users sheet column order mapping (legacy support)
     const FIXED_COLUMN_INDICES = {
       "Name": 0,
       "User Status": 1,
@@ -129,12 +129,16 @@
     // ---------- Utils ----------
     const hmsToSeconds = (hms) => {
       if (!hms || typeof hms !== 'string') return 0;
-      const parts = hms.split(':');
+      const parts = hms.trim().split(':');
       if (parts.length === 3) {
         const h = parseInt(parts[0], 10) || 0;
         const m = parseInt(parts[1], 10) || 0;
         const s = parseInt(parts[2], 10) || 0;
         return (h * 3600) + (m * 60) + s;
+      } else if (parts.length === 2) {
+        const m = parseInt(parts[0], 10) || 0;
+        const s = parseInt(parts[1], 10) || 0;
+        return (m * 60) + s;
       }
       return 0;
     };
@@ -152,9 +156,9 @@
 
     // ---------- ZIP normalizer (fixes data-descriptor XLSX errors) ----------
     function normalizeZipLocalHeaders(u8) {
-      const SIG_EOCD = 0x06054b50;   // End of central directory
-      const SIG_CEN  = 0x02014b50;   // Central directory file header
-      const SIG_LOC  = 0x04034b50;   // Local file header
+      const SIG_EOCD = 0x06054b50;
+      const SIG_CEN  = 0x02014b50;
+      const SIG_LOC  = 0x04034b50;
 
       const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
       const maxBack = Math.min(u8.length, 0x10000 + 22);
@@ -192,49 +196,84 @@
       return u8;
     }
 
-
     // ---------- CSV Parser ----------
+    /**
+     * Parse a CSV string into an array of agent objects.  This version is tolerant
+     * of optional fields and will derive handle time totals from an average handle
+     * time column if no explicit total columns are present.  It also strips out
+     * any leading byte order marks from the header row.
+     *
+     * @param {string} csvText Raw CSV text
+     * @returns {Array<Object>} Parsed agent data
+     */
     const parseCSV = (csvText) => {
       const lines = csvText.split(/\r?\n/);
-      let dataStartRow = -1;
-      const data = [];
-      const newAgentsAvailable = [];
-      let computedDays = 0;
-
+      let headerRowIndex = -1;
+      // locate the header row (first line that starts with "Name", ignoring BOM)
       for (let i = 0; i < lines.length; i++) {
-        if (lines[i].trim().startsWith(AGENT_DATA_START_KEYWORD)) {
-          dataStartRow = i + 1;
+        const cleaned = lines[i].trim().replace(/^\uFEFF/, '');
+        if (cleaned.toLowerCase().startsWith(AGENT_DATA_START_KEYWORD.toLowerCase())) {
+          headerRowIndex = i;
           break;
         }
       }
-      if (dataStartRow === -1) throw new Error("Could not find the start of the agent data (missing 'Name' column).");
+      if (headerRowIndex === -1) {
+        throw new Error("Could not find the start of the agent data (missing 'Name' column).");
+      }
 
-      for (let r = dataStartRow; r < lines.length; r++) {
-        const line = lines[r].trim();
-        if (!line) continue;
+      // build a mapping of column names to indices
+      const headerParts = lines[headerRowIndex].replace(/^\uFEFF/, '').split(',').map(h => h.trim());
+      const indexMap = {};
+      headerParts.forEach((h, idx) => { indexMap[h] = idx; });
 
-        const row = line.split(',');
-        if (row.length <= FIXED_COLUMN_INDICES["Total Handle Time (out)"]) continue;
+      const hasTotalIn = indexMap['Total Handle Time (in)'] !== undefined;
+      const hasTotalOut = indexMap['Total Handle Time (out)'] !== undefined;
+      const hasAvg = indexMap['Avg. Handle Time'] !== undefined || indexMap['Average Handle Time'] !== undefined;
+      const avgIndex = (indexMap['Avg. Handle Time'] !== undefined) ? indexMap['Avg. Handle Time'] : indexMap['Average Handle Time'];
 
-        const agentName = String(row[FIXED_COLUMN_INDICES["Name"]] || "").trim();
-        const userStatus = String(row[FIXED_COLUMN_INDICES["User Status"]] || "").trim().toUpperCase();
+      const newAgentsAvailable = [];
+      const data = [];
+      let computedDays = 0;
 
-        const totalCalls = parseFloat(row[FIXED_COLUMN_INDICES["Total Calls"]]) || 0;
-        const avgCallsPerDay = parseFloat(row[FIXED_COLUMN_INDICES["Avg. Calls/Day"]]) || 0;
-        const totalInboundCount = parseInt(row[FIXED_COLUMN_INDICES["# Inbound"]]) || 0;
-        const totalOutboundCount = parseInt(row[FIXED_COLUMN_INDICES["# Outbound"]]) || 0;
+      for (let r = headerRowIndex + 1; r < lines.length; r++) {
+        const rawLine = lines[r];
+        if (!rawLine || !rawLine.trim()) continue;
+        const row = rawLine.split(',').map(s => s.trim());
 
-        const totalHandleIn = hmsToSeconds(String(row[FIXED_COLUMN_INDICES["Total Handle Time (in)"]] || ""));
-        const totalHandleOut = hmsToSeconds(String(row[FIXED_COLUMN_INDICES["Total Handle Time (out)"]] || ""));
+        const agentName = (indexMap['Name'] !== undefined && indexMap['Name'] < row.length) ? String(row[indexMap['Name']] || '') : '';
+        const userStatus = (indexMap['User Status'] !== undefined && indexMap['User Status'] < row.length) ? String(row[indexMap['User Status']] || '').toUpperCase() : '';
 
+        const totalCalls = (indexMap['Total Calls'] !== undefined && indexMap['Total Calls'] < row.length) ? parseFloat(row[indexMap['Total Calls']] || '0') : 0;
+        const avgCallsPerDay = (indexMap['Avg. Calls/Day'] !== undefined && indexMap['Avg. Calls/Day'] < row.length) ? parseFloat(row[indexMap['Avg. Calls/Day']] || '0') : 0;
+        const totalInboundCount = (indexMap['# Inbound'] !== undefined && indexMap['# Inbound'] < row.length) ? parseInt(row[indexMap['# Inbound']] || '0', 10) : 0;
+        const totalOutboundCount = (indexMap['# Outbound'] !== undefined && indexMap['# Outbound'] < row.length) ? parseInt(row[indexMap['# Outbound']] || '0', 10) : 0;
+
+        // Derive report duration on first row with calls
         if (computedDays === 0 && totalCalls > 0 && avgCallsPerDay > 0) {
           computedDays = Math.max(1, Math.round((totalCalls / avgCallsPerDay) * 10) / 10);
           if (computedDays > 30) computedDays = Math.round(computedDays);
         }
 
-        if (!agentName || agentName.toUpperCase().includes("DIRECT") || userStatus !== "ACTIVE") continue;
+        // Skip invalid or inactive entries
+        if (!agentName || agentName.toUpperCase().includes('DIRECT') || userStatus !== 'ACTIVE') continue;
 
         newAgentsAvailable.push(agentName);
+
+        let totalHandleIn = 0;
+        let totalHandleOut = 0;
+        if (hasTotalIn && indexMap['Total Handle Time (in)'] < row.length) {
+          totalHandleIn = hmsToSeconds(String(row[indexMap['Total Handle Time (in)']] || ''));
+        }
+        if (hasTotalOut && indexMap['Total Handle Time (out)'] < row.length) {
+          totalHandleOut = hmsToSeconds(String(row[indexMap['Total Handle Time (out)']] || ''));
+        }
+        // If totals missing and an average handle time exists, estimate totals
+        if ((totalHandleIn + totalHandleOut === 0) && hasAvg && avgIndex !== undefined && avgIndex < row.length) {
+          const avgHms = String(row[avgIndex] || '');
+          const avgSeconds = hmsToSeconds(avgHms);
+          totalHandleIn = avgSeconds * totalInboundCount;
+          totalHandleOut = avgSeconds * totalOutboundCount;
+        }
 
         let daysActive = computedDays || 0;
         if (totalCalls > 0 && avgCallsPerDay > 0) {
@@ -244,6 +283,7 @@
           daysActive = 0;
         }
 
+        // Skip pure zero rows
         if (totalHandleIn + totalHandleOut === 0 && totalCalls === 0) continue;
 
         data.push({
@@ -398,49 +438,6 @@
       }
     };
 
-    // ---------- ZIP normalizer (fixes data-descriptor XLSX errors) ----------
-    function normalizeZipLocalHeaders(u8) {
-      const SIG_EOCD = 0x06054b50;   
-      const SIG_CEN  = 0x02014b50;   
-      const SIG_LOC  = 0x04034b50;   
-
-      const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
-      const maxBack = Math.min(u8.length, 0x10000 + 22);
-      let eocdPos = -1;
-      for (let i = u8.length - 22; i >= u8.length - maxBack; --i) {
-        if (i < 0) break;
-        if (dv.getUint32(i, true) === SIG_EOCD) { eocdPos = i; break; }
-      }
-      if (eocdPos < 0) return u8;
-
-      const cenSize = dv.getUint32(eocdPos + 12, true);
-      const cenOff  = dv.getUint32(eocdPos + 16, true);
-
-      let p = cenOff;
-      const end = cenOff + cenSize;
-
-      while (p + 46 <= end && dv.getUint32(p, true) === SIG_CEN) {
-        const crc32  = dv.getUint32(p + 16, true);
-        const csize  = dv.getUint32(p + 20, true);
-        const usize  = dv.getUint32(p + 24, true);
-        const fnlen  = dv.getUint16(p + 28, true);
-        const xlen   = dv.getUint16(p + 30, true);
-        const clen   = dv.getUint16(p + 32, true);
-        const lhofs  = dv.getUint32(p + 42, true);
-
-        if (lhofs + 30 <= u8.length && dv.getUint32(lhofs, true) ===  SIG_LOC) {
-          const gp = dv.getUint16(lhofs + 6, true);
-          dv.setUint16(lhofs + 6, gp & ~0x0008, true); // clear data-descriptor bit (0x0008)
-          dv.setUint32(lhofs + 14, crc32, true);
-          dv.setUint32(lhofs + 18, csize, true);
-          dv.setUint32(lhofs + 22, usize, true);
-        }
-        p += 46 + fnlen + xlen + clen;
-      }
-      return u8;
-    }
-
-
     // ---------- File handling ----------
     const handleProcessedCSV = (csvText) => {
       document.getElementById('loading-overlay').style.display = 'flex';
@@ -556,8 +553,6 @@
       agentStatistics = calculateStatistics(initialData);
       renderStatistics();
     };
-    
-    // (Other rendering/filter functions are standard and left as is)
 
     const initApp = () => {
       dataFileInput.addEventListener('change', (e) => {
@@ -591,4 +586,3 @@
   </script>
 </body>
 </html>
-Final draft 10-20
