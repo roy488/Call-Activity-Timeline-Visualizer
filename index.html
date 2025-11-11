@@ -1,139 +1,27 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Agent Call Activity Timeline</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
-        body { font-family: 'Inter', sans-serif; background-color: #f7f9fb; }
-        .timeline-container { overflow-x: scroll; width: 100%; }
-        .timeline-chart { position: relative; min-width: 1500px; /* Base width for initial load */ }
-        .agent-track { height: 35px; border-bottom: 1px solid #e5e7eb; position: relative; }
-        .call-bar { position: absolute; height: 25px; top: 5px; border-radius: 4px; transition: transform 0.1s; cursor: pointer; }
-        .downtime-bar { position: absolute; height: 3px; top: 16px; background-color: #ef4444; /* Red-500 */ border-radius: 1px; }
-        .call-bar:hover { z-index: 10; transform: scaleY(1.2); }
-        .tooltip {
-            position: absolute;
-            z-index: 20;
-            background-color: #1f2937;
-            color: white;
-            padding: 8px 12px;
-            border-radius: 6px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-            pointer-events: none;
-            opacity: 0;
-            transition: opacity 0.2s, transform 0.2s;
-            transform: translate(-50%, -10px);
-            min-width: 200px;
-        }
-        .show-tooltip { opacity: 1; transform: translate(-50%, -40px); }
-        #agent-list-panel { max-height: 150px; overflow-y: auto; padding: 8px; border: 1px solid #e2e8f0; border-radius: 6px; background-color: #f8fafc; width: 200px; }
-        .agent-checkbox-item { display: flex; align-items: center; padding: 2px 0; font-size: 0.9rem; cursor: pointer; }
-        .agent-checkbox-item:hover { background-color: #eff6ff; border-radius: 4px; }
-        /* Ensures agent labels and tracks align perfectly */
-        .agent-label-row { height: 35px; line-height: 35px; border-bottom: 1px solid #e5e7eb; }
-        #agent-labels-header { height: 36px; } /* Adjust header height to align with first track */
-    </style>
-</head>
-<body class="p-8">
-
-    <div id="app" class="max-w-7xl mx-auto">
-        <header class="mb-8 p-4 bg-white rounded-xl shadow-lg border-b-4 border-emerald-500">
-            <h1 class="text-3xl font-bold text-gray-800">Agent Call Activity Timeline</h1>
-            <p id="date-range-summary" class="text-gray-500 mt-1">Load a CSV file to begin analysis.</p>
-        </header>
-
-                <div class="flex justify-between items-start mb-6 p-4 bg-white rounded-xl shadow">
-            <div class="flex items-center space-x-4">
-                <div class="flex flex-col">
-                    <label class="text-sm font-medium text-gray-700">Zoom Level:</label>
-                    <input type="range" id="zoom-slider" min="100" max="400" value="100" class="w-48 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer range-sm">
-                </div>
-            </div>
-
-                        <div class="flex flex-col items-end">
-                <div class="flex items-center mb-1">
-                    <label class="text-sm font-medium text-gray-700 mr-2">Filter Agents:</label>
-                    <span id="filter-feedback" class="text-xs font-semibold px-2 py-1 rounded-full bg-emerald-100 text-emerald-700">0 Agents Selected</span>
-                </div>
-                <div id="agent-list-panel">
-                    <p class="text-gray-500 text-center text-sm">Upload data to load agents.</p>
-                </div>
-                <div class="flex space-x-2 mt-2">
-                    <button id="applyFilter" class="px-3 py-2 bg-emerald-500 text-white rounded-md hover:bg-emerald-600 transition font-medium text-sm">Apply Filter</button>
-                    <button id="clearSelection" class="px-3 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition font-medium text-sm">Clear Selection</button>
-                </div>
-            </div>
-        </div>
-
-                <div id="drop-area" class="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center bg-white hover:border-emerald-400 transition cursor-pointer mb-8">
-            <input type="file" id="csvFileInput" accept=".csv" class="hidden">
-            <p class="text-lg font-medium text-gray-700">**DROP RINGCENTRAL CALL LOG CSV FILE HERE**</p>
-            <p class="text-sm text-gray-500 mt-1">Accepts single-day CSV only. No XLSX conversion needed for this tool.</p>
-        </div>
-
-                <div id="visualization-area" class="flex bg-white rounded-xl shadow-lg overflow-hidden border">
-                        <div id="agent-names-column" class="flex-shrink-0 w-48 border-r bg-gray-50">
-                <div id="agent-labels-header" class="px-3 text-xs font-semibold text-gray-600 uppercase border-b border-gray-300 flex items-center">
-                    Agent Name
-                </div>
-                <div id="agent-label-container">
-                                    </div>
-            </div>
-
-                        <div id="timeline-scroll-container" class="timeline-container relative">
-                <div id="timeline-chart" class="timeline-chart">
-                                    </div>
-            </div>
-        </div>
-
-                <div id="call-tooltip" class="tooltip"></div>
-        
-                <div id="stats-summary-area" class="mt-8 p-6 bg-white rounded-xl shadow-lg border-t-4 border-emerald-500" style="display: none;">
-            <h2 class="text-2xl font-semibold text-gray-700 mb-4">Daily Productivity Metrics (8-Hour Net)</h2>
-            <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50">
-                        <tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Agent Name</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Calls</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Inbound Handle Time</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Outbound Handle Time</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Productive Time</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-red-600 uppercase tracking-wider">Time Off Phone (8h)</th>
-                        </tr>
-                    </thead>
-                    <tbody id="stats-table-body" class="bg-white divide-y divide-gray-200"></tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-
-    <script>
+<script>
         // --- Constants ---
         const VALID_RESULTS_CONNECTED = ["Connected", "Answered"];
         const VALID_RESULTS_TRANSFERRED = ["Transferred", "Transferred / To Voicemail"];
         
         // --- UPDATED AGENT LIST ---
+        // Merged list from all previous reports for best coverage
         const AGENT_LIST = [
             "ALEJANDRO SATUNINO CAMPOS-PEREZ", 
             "AUSTIN MITCHELL", 
             "Brady Olson", 
             "Brandon Ridder", 
-            "BRANDON RUSSOM", // ADDED: Brandon Russom was in the User sheet but missing from this list
+            "BRANDON RUSSOM", 
             "BRENDAN BOH", 
             "Cullen Manley", 
             "David Ryan", 
-            "DOMINIQUE GONZALES", // ADDED: Dominique Gonzales was in the Call log but missing from this list
+            "DOMINIQUE GONZALES", 
             "Duncan Cannon", 
             "Hayden Holcomb", 
             "Joel Jubber", 
             "John Udick", 
             "KIMBERLY RAMIREZ", 
             "MARCOS HERNANDEZ", 
-            "MOUNIR ROSENDO", // ADDED: Mounir Rosendo was in the Call log but missing from this list
+            "MOUNIR ROSENDO", 
             "Natasha Fowler", 
             "Nathan Hill", 
             "Olivia Kasten", 
@@ -192,7 +80,7 @@
             for (const [uppercaseTarget, originalName] of AGENT_MAP.entries()) {
                 // Check for exact match or begins with (robust against slight variations)
                 if (cleanedInputUpper === uppercaseTarget || cleanedInputUpper.startsWith(uppercaseTarget)) {
-                    return originalName;
+    2               return originalName;
                 }
             }
 
@@ -261,32 +149,32 @@
                 const result = row[colIndex.result];
                 const direction = row[colIndex.direction];
                 
-                // --- FIX: Check both From Name and To Name for the Agent's identity ---
+                // --- FIX 1: Robust Agent Identification for ALL calls (including transfers) ---
                 let agentName;
                 
-                // 1. Try From Name (usually the agent for Outbound, or when agent initiates a transfer)
-                agentName = extractAgentName(row[colIndex.fromName]);
-
-                if (!agentName) {
-                    // 2. If not found, try To Name (often the agent for Inbound calls routed to them)
-                    agentName = extractAgentName(row[colIndex.toName]);
-                }
-                // --- END FIX ---
+                // 1. Check if an agent is the recipient (To Name)
+                agentName = extractAgentName(row[colIndex.toName]);
                 
+                // 2. If not, check if an agent is the initiator (From Name)
+                if (!agentName) {
+                    agentName = extractAgentName(row[colIndex.fromName]);
+                }
+
                 if (!agentName) continue; 
+                // --- END FIX 1 ---
 
                 const callLength = parseInt(row[colIndex.callLength]) || 0;
                 if (callLength === 0) continue;
                 
-                // --- LOGIC: DETERMINE IF CALL IS VALID PRODUCTIVE TIME AND ITS TYPE (Modified for Transfers) ---
+                // --- LOGIC: DETERMINE VALID PRODUCTIVE TIME AND ITS TYPE ---
                 let isValidCall = false;
                 let callType = 'Attempted'; 
 
                 if (VALID_RESULTS_CONNECTED.includes(result)) {
-                    // Connected or Answered (Standard Productive Time)
                     isValidCall = true;
                     callType = direction === 'Outbound' ? 'ConnectedOutbound' : 'ConnectedInbound';
                 } else if (VALID_RESULTS_TRANSFERRED.includes(result)) { 
+                    // FIX 2: Transfers are always considered valid productive time
                     isValidCall = true;
                     callType = 'Transferred';
                 } else if (direction === 'Outbound' && callLength >= 5) { // Only count outbound attempts > 5s
@@ -316,8 +204,7 @@
                 };
                 callData.push(call);
                 
-                // Aggregate data for statistics table (Handle Time used if available, otherwise Call Length)
-                // NOTE: Handle Time column is often blank in this report, so we rely on Call Length for visualization.
+                // Aggregate data for statistics table
                 const productiveTime = parseInt(row[colIndex.handleTime]) || callLength;
                 
                 if (!agentProductivity.has(agentName)) {
@@ -331,7 +218,7 @@
                 const stats = agentProductivity.get(agentName);
                 stats.totalCalls += 1;
                 
-                // Assign productive time based on direction/type
+                // FIX 3: Transfers are now explicitly tracked as Inbound work.
                 if (call.callType === 'ConnectedInbound' || call.callType === 'Transferred') {
                     stats.inboundTime += productiveTime;
                 } else {
@@ -544,7 +431,7 @@
                     lastEndTime = call.endSeconds;
 
                     // B. Render Call Bar (Productive Time)
-                    const callStart = Math.max(call.startSeconds, START_OF_DAY_SECONDS);
+    4               const callStart = Math.max(call.startSeconds, START_OF_DAY_SECONDS);
                     const callEnd = Math.min(call.endSeconds, END_OF_DAY_SECONDS);
                     const callDuration = callEnd - callStart;
 
@@ -554,7 +441,7 @@
 
                         const bar = document.createElement('div');
                         
-                        // --- New Color Logic (MODIFIED TO INCLUDE TRANSFERS) ---
+                        // --- New Color Logic ---
                         let bgColor = 'bg-gray-400';
                         if (call.callType === 'ConnectedInbound') {
                             bgColor = 'bg-green-500';
@@ -723,6 +610,4 @@
 
         window.onload = initApp;
     </script>
-</body>
-</html>
-11.11
+    11.11
