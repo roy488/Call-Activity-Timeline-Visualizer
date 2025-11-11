@@ -24,6 +24,7 @@
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
             pointer-events: none;
             opacity: 0;
+            transition: opacity 0.2s, transform 0.2s;
             transform: translate(-50%, -10px);
             min-width: 200px;
         }
@@ -116,24 +117,23 @@
         const VALID_RESULTS_TRANSFERRED = ["Transferred", "Transferred / To Voicemail"];
         
         // --- UPDATED AGENT LIST ---
-        // Merged list from all previous reports for best coverage
         const AGENT_LIST = [
             "ALEJANDRO SATUNINO CAMPOS-PEREZ", 
             "AUSTIN MITCHELL", 
             "Brady Olson", 
             "Brandon Ridder", 
-            "BRANDON RUSSOM", 
+            "BRANDON RUSSOM", // ADDED: Brandon Russom was in the User sheet but missing from this list
             "BRENDAN BOH", 
             "Cullen Manley", 
             "David Ryan", 
-            "DOMINIQUE GONZALES", 
+            "DOMINIQUE GONZALES", // ADDED: Dominique Gonzales was in the Call log but missing from this list
             "Duncan Cannon", 
             "Hayden Holcomb", 
             "Joel Jubber", 
             "John Udick", 
             "KIMBERLY RAMIREZ", 
             "MARCOS HERNANDEZ", 
-            "MOUNIR ROSENDO", 
+            "MOUNIR ROSENDO", // ADDED: Mounir Rosendo was in the Call log but missing from this list
             "Natasha Fowler", 
             "Nathan Hill", 
             "Olivia Kasten", 
@@ -180,28 +180,24 @@
         const extractAgentName = (fullName) => {
             if (!fullName) return null;
             
-            // 1. Clean the input: remove numbers/extensions in parentheses and trim.
+            // 1. Clean the input: remove extension/number in parentheses and trim.
             let cleanedInput = fullName.split('(')[0].trim();
-            
-            // Clean up artifacts from CSV export (like phone numbers without parentheses)
-            cleanedInput = cleanedInput.replace(/\d{3}-\d{3}-\d{4}/g, '').trim(); 
-
             const cleanedInputUpper = cleanedInput.toUpperCase();
 
             // 2. Exclude system/direct calls
             if (cleanedInputUpper.includes('DIRECT') || cleanedInputUpper.includes('SERVICE')) return null;
             if (cleanedInputUpper.length === 0) return null;
 
-            // 3. Look for the best match in the AGENT_MAP (Most robust logic)
+            // 3. Look for the best match in the AGENT_MAP
             for (const [uppercaseTarget, originalName] of AGENT_MAP.entries()) {
-                // Check for exact match or if the input starts with the agent's name
+                // Check for exact match or begins with (robust against slight variations)
                 if (cleanedInputUpper === uppercaseTarget || cleanedInputUpper.startsWith(uppercaseTarget)) {
                     return originalName;
                 }
             }
 
-            // Fallback if no clean match found (This can happen if names are not consistently capitalized)
-            const foundMatch = AGENT_LIST.find(name => cleanedInputUpper.includes(name.toUpperCase()));
+            // 4. Fallback: Check if the cleaned input itself is a name in the list (e.g., if it's an internal extension without formatting)
+            const foundMatch = AGENT_LIST.find(name => cleanedInputUpper === name.toUpperCase());
             if(foundMatch) return foundMatch;
 
             return null;
@@ -265,32 +261,32 @@
                 const result = row[colIndex.result];
                 const direction = row[colIndex.direction];
                 
-                // --- FIX: Robust Agent Identification for ALL calls (including transfers) ---
+                // --- FIX: Check both From Name and To Name for the Agent's identity ---
                 let agentName;
                 
-                // 1. Check if an agent is the recipient (To Name) - Priority for Inbound/Transfers
-                agentName = extractAgentName(row[colIndex.toName]);
-                
-                // 2. If not, check if an agent is the initiator (From Name) - Often Outbound
-                if (!agentName) {
-                    agentName = extractAgentName(row[colIndex.fromName]);
-                }
+                // 1. Try From Name (usually the agent for Outbound, or when agent initiates a transfer)
+                agentName = extractAgentName(row[colIndex.fromName]);
 
-                if (!agentName) continue; 
+                if (!agentName) {
+                    // 2. If not found, try To Name (often the agent for Inbound calls routed to them)
+                    agentName = extractAgentName(row[colIndex.toName]);
+                }
                 // --- END FIX ---
+                
+                if (!agentName) continue; 
 
                 const callLength = parseInt(row[colIndex.callLength]) || 0;
                 if (callLength === 0) continue;
                 
-                // --- LOGIC: DETERMINE VALID PRODUCTIVE TIME AND ITS TYPE ---
+                // --- LOGIC: DETERMINE IF CALL IS VALID PRODUCTIVE TIME AND ITS TYPE (Modified for Transfers) ---
                 let isValidCall = false;
                 let callType = 'Attempted'; 
 
                 if (VALID_RESULTS_CONNECTED.includes(result)) {
+                    // Connected or Answered (Standard Productive Time)
                     isValidCall = true;
                     callType = direction === 'Outbound' ? 'ConnectedOutbound' : 'ConnectedInbound';
                 } else if (VALID_RESULTS_TRANSFERRED.includes(result)) { 
-                    // Transfers are always considered valid productive time
                     isValidCall = true;
                     callType = 'Transferred';
                 } else if (direction === 'Outbound' && callLength >= 5) { // Only count outbound attempts > 5s
@@ -320,8 +316,8 @@
                 };
                 callData.push(call);
                 
-                // Aggregate data for statistics table
-                // Use 'Handle Time' if present, otherwise fall back to 'Call Length'
+                // Aggregate data for statistics table (Handle Time used if available, otherwise Call Length)
+                // NOTE: Handle Time column is often blank in this report, so we rely on Call Length for visualization.
                 const productiveTime = parseInt(row[colIndex.handleTime]) || callLength;
                 
                 if (!agentProductivity.has(agentName)) {
@@ -335,7 +331,7 @@
                 const stats = agentProductivity.get(agentName);
                 stats.totalCalls += 1;
                 
-                // Transfers and ConnectedInbound are explicitly counted as Inbound work.
+                // Assign productive time based on direction/type
                 if (call.callType === 'ConnectedInbound' || call.callType === 'Transferred') {
                     stats.inboundTime += productiveTime;
                 } else {
@@ -558,7 +554,7 @@
 
                         const bar = document.createElement('div');
                         
-                        // --- New Color Logic ---
+                        // --- New Color Logic (MODIFIED TO INCLUDE TRANSFERS) ---
                         let bgColor = 'bg-gray-400';
                         if (call.callType === 'ConnectedInbound') {
                             bgColor = 'bg-green-500';
