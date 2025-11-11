@@ -1,727 +1,728 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Agent Call Activity Timeline</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
-        body { font-family: 'Inter', sans-serif; background-color: #f7f9fb; }
-        .timeline-container { overflow-x: scroll; width: 100%; }
-        .timeline-chart { position: relative; min-width: 1500px; /* Base width for initial load */ }
-        .agent-track { height: 35px; border-bottom: 1px solid #e5e7eb; position: relative; }
-        .call-bar { position: absolute; height: 25px; top: 5px; border-radius: 4px; transition: transform 0.1s; cursor: pointer; }
-        .downtime-bar { position: absolute; height: 3px; top: 16px; background-color: #ef4444; /* Red-500 */ border-radius: 1px; }
-        .call-bar:hover { z-index: 10; transform: scaleY(1.2); }
-        .tooltip {
-            position: absolute;
-            z-index: 20;
-            background-color: #1f2937;
-            color: white;
-            padding: 8px 12px;
-            border-radius: 6px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-            pointer-events: none;
-            opacity: 0;
-            transition: opacity 0.2s, transform 0.2s;
-            transform: translate(-50%, -10px);
-            min-width: 200px;
-        }
-        .show-tooltip { opacity: 1; transform: translate(-50%, -40px); }
-        #agent-list-panel { max-height: 150px; overflow-y: auto; padding: 8px; border: 1px solid #e2e8f0; border-radius: 6px; background-color: #f8fafc; width: 200px; }
-        .agent-checkbox-item { display: flex; align-items: center; padding: 2px 0; font-size: 0.9rem; cursor: pointer; }
-        .agent-checkbox-item:hover { background-color: #eff6ff; border-radius: 4px; }
-        /* Ensures agent labels and tracks align perfectly */
-        .agent-label-row { height: 35px; line-height: 35px; border-bottom: 1px solid #e5e7eb; }
-        #agent-labels-header { height: 36px; } /* Adjust header height to align with first track */
-    </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent Call Activity Timeline</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f7f9fb; }
+        .timeline-container { overflow-x: scroll; width: 100%; }
+        .timeline-chart { position: relative; min-width: 1500px; /* Base width for initial load */ }
+        .agent-track { height: 35px; border-bottom: 1px solid #e5e7eb; position: relative; }
+        .call-bar { position: absolute; height: 25px; top: 5px; border-radius: 4px; transition: transform 0.1s; cursor: pointer; }
+        .downtime-bar { position: absolute; height: 3px; top: 16px; background-color: #ef4444; /* Red-500 */ border-radius: 1px; }
+        .call-bar:hover { z-index: 10; transform: scaleY(1.2); }
+        .tooltip {
+            position: absolute;
+            z-index: 20;
+            background-color: #1f2937;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s, transform 0.2s;
+            transform: translate(-50%, -10px);
+            min-width: 200px;
+        }
+        .show-tooltip { opacity: 1; transform: translate(-50%, -40px); }
+        #agent-list-panel { max-height: 150px; overflow-y: auto; padding: 8px; border: 1px solid #e2e8f0; border-radius: 6px; background-color: #f8fafc; width: 200px; }
+        .agent-checkbox-item { display: flex; align-items: center; padding: 2px 0; font-size: 0.9rem; cursor: pointer; }
+        .agent-checkbox-item:hover { background-color: #eff6ff; border-radius: 4px; }
+        /* Ensures agent labels and tracks align perfectly */
+        .agent-label-row { height: 35px; line-height: 35px; border-bottom: 1px solid #e5e7eb; }
+        #agent-labels-header { height: 36px; } /* Adjust header height to align with first track */
+    </style>
 </head>
 <body class="p-8">
 
-    <div id="app" class="max-w-7xl mx-auto">
-        <header class="mb-8 p-4 bg-white rounded-xl shadow-lg border-b-4 border-emerald-500">
-            <h1 class="text-3xl font-bold text-gray-800">Agent Call Activity Timeline</h1>
-            <p id="date-range-summary" class="text-gray-500 mt-1">Load a CSV file to begin analysis.</p>
-        </header>
-
-        <!-- Control Panel -->
-        <div class="flex justify-between items-start mb-6 p-4 bg-white rounded-xl shadow">
-            <div class="flex items-center space-x-4">
-                <div class="flex flex-col">
-                    <label class="text-sm font-medium text-gray-700">Zoom Level:</label>
-                    <input type="range" id="zoom-slider" min="100" max="400" value="100" class="w-48 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer range-sm">
-                </div>
-            </div>
-
-            <!-- Filter Panel -->
-            <div class="flex flex-col items-end">
-                <div class="flex items-center mb-1">
-                    <label class="text-sm font-medium text-gray-700 mr-2">Filter Agents:</label>
-                    <span id="filter-feedback" class="text-xs font-semibold px-2 py-1 rounded-full bg-emerald-100 text-emerald-700">0 Agents Selected</span>
-                </div>
-                <div id="agent-list-panel">
-                    <p class="text-gray-500 text-center text-sm">Upload data to load agents.</p>
-                </div>
-                <div class="flex space-x-2 mt-2">
-                    <button id="applyFilter" class="px-3 py-2 bg-emerald-500 text-white rounded-md hover:bg-emerald-600 transition font-medium text-sm">Apply Filter</button>
-                    <button id="clearSelection" class="px-3 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition font-medium text-sm">Clear Selection</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Drop Area -->
-        <div id="drop-area" class="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center bg-white hover:border-emerald-400 transition cursor-pointer mb-8">
-            <input type="file" id="csvFileInput" accept=".csv" class="hidden">
-            <p class="text-lg font-medium text-gray-700">**DROP RINGCENTRAL CALL LOG CSV FILE HERE**</p>
-            <p class="text-sm text-gray-500 mt-1">Accepts single-day CSV only. No XLSX conversion needed for this tool.</p>
-        </div>
-
-        <!-- Visualization Area -->
-        <div id="visualization-area" class="flex bg-white rounded-xl shadow-lg overflow-hidden border">
-            <!-- Agent Names (Fixed Left Column) -->
-            <div id="agent-names-column" class="flex-shrink-0 w-48 border-r bg-gray-50">
-                <div id="agent-labels-header" class="px-3 text-xs font-semibold text-gray-600 uppercase border-b border-gray-300 flex items-center">
-                    Agent Name
-                </div>
-                <div id="agent-label-container">
-                    <!-- Agent labels will be injected here -->
-                </div>
-            </div>
-
-            <!-- Timeline Chart (Scrollable) -->
-            <div id="timeline-scroll-container" class="timeline-container relative">
-                <div id="timeline-chart" class="timeline-chart">
-                    <!-- Time labels and call bars will be injected here -->
-                </div>
-            </div>
-        </div>
-
-        <!-- Tooltip Element (Hidden by default) -->
-        <div id="call-tooltip" class="tooltip"></div>
-        
-        <!-- Daily Statistics Summary (New Section) -->
-        <div id="stats-summary-area" class="mt-8 p-6 bg-white rounded-xl shadow-lg border-t-4 border-emerald-500" style="display: none;">
-            <h2 class="text-2xl font-semibold text-gray-700 mb-4">Daily Productivity Metrics (8-Hour Net)</h2>
-            <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50">
-                        <tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Agent Name</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Calls</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Inbound Handle Time</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Outbound Handle Time</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Productive Time</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-red-600 uppercase tracking-wider">Time Off Phone (8h)</th>
-                        </tr>
-                    </thead>
-                    <tbody id="stats-table-body" class="bg-white divide-y divide-gray-200"></tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-
-    <script>
-        // --- Constants ---
-        const VALID_RESULTS_CONNECTED = ["Connected", "Answered"];
-        const VALID_RESULTS_TRANSFERRED = ["Transferred", "Transferred / To Voicemail"]; // MODIFIED: ADDED TRANSFER RESULTS
-        
-        // --- UPDATED AGENT LIST ---
-        const AGENT_LIST = [
-            "ALEJANDRO SATUNINO CAMPOS-PEREZ", 
-            "AUSTIN MITCHELL", 
-            "Brady Olson", 
-            "Brandon Ridder", 
-            "BRENDAN BOH", 
-            "Cullen Manley", 
-            "David Ryan", 
-            "Duncan Cannon", 
-            "Hayden Holcomb", 
-            "Joel Jubber", 
-            "John Udick", 
-            "KIMBERLY RAMIREZ", 
-            "MARCOS HERNANDEZ", 
-            "Natasha Fowler", 
-            "Nathan Hill", 
-            "Olivia Kasten", 
-            "Tammy Lummus", 
-            "Wanda Scott"
-        ];
-        // --- END UPDATED AGENT LIST ---
-
-        // Pre-clean and map the agent list for efficient lookup
-        const AGENT_MAP = new Map(AGENT_LIST.map(name => [name.toUpperCase(), name]));
-        
-        // --- Standardized Workday (8:30 AM to 5:30 PM) ---
-        const START_OF_DAY_SECONDS = 8.5 * 3600; // 8:30 AM
-        const END_OF_DAY_SECONDS = 17.5 * 3600; // 5:30 PM
-        const NET_WORKDAY_SECONDS = 8 * 3600; // 8 hours net productive time (9 hours gross - 1 hour lunch)
-        
-        // --- Custom Highlight Threshold (4 hours) ---
-        const IDLE_TIME_HIGHLIGHT_SECONDS = 4 * 3600; 
-
-
-        // --- State ---
-        let callData = [];
-        let agentTrackMap = {};
-        let agentProductivity = new Map();
-        let totalTimeSeconds = END_OF_DAY_SECONDS - START_OF_DAY_SECONDS;
-        let timeMin = START_OF_DAY_SECONDS;
-        let timeMax = END_OF_DAY_SECONDS;
-        let selectedAgents = [];
-        
-        // --- DOM Elements ---
-        const timelineChart = document.getElementById('timeline-chart');
-        const agentLabelContainer = document.getElementById('agent-label-container');
-        const timelineScrollContainer = document.getElementById('timeline-scroll-container');
-        const tooltip = document.getElementById('call-tooltip');
-        const zoomSlider = document.getElementById('zoom-slider');
-        const filterFeedback = document.getElementById('filter-feedback');
-        const dropArea = document.getElementById('drop-area'); 
-        const csvFileInput = document.getElementById('csvFileInput'); 
-        const dropText = document.querySelector('#drop-area p.text-lg'); 
-
-        // --- Utility Functions ---
-
-        /** Extracts clean name from 'Name (Extension)' format and maps it to a standard name from AGENT_LIST. */
-        const extractAgentName = (fullName) => {
-            if (!fullName) return null;
-            let cleanedInput = fullName.split('(')[0].trim();
-            const cleanedInputUpper = cleanedInput.toUpperCase();
-
-            // 1. Exclude system/direct calls
-            if (cleanedInputUpper.includes('DIRECT') || cleanedInputUpper.includes('SERVICE')) return null;
-
-            // 2. Look for the best match in the AGENT_MAP
-            for (const [uppercaseTarget, originalName] of AGENT_MAP.entries()) {
-                if (cleanedInputUpper.startsWith(uppercaseTarget) || cleanedInputUpper === uppercaseTarget) {
-                    return originalName;
-                }
-                const firstWordTarget = uppercaseTarget.split(' ')[0];
-                if (cleanedInputUpper.startsWith(firstWordTarget) && AGENT_MAP.has(uppercaseTarget)) {
-                    return originalName;
-                }
-            }
-
-            // Fallback: If the name in the CSV is very long and doesn't exactly match but includes a listed name.
-            const foundMatch = AGENT_LIST.find(name => cleanedInputUpper.includes(name.toUpperCase()));
-            if(foundMatch) return foundMatch;
-
-            return null;
-        };
-
-        /** Converts Date object to seconds from midnight. */
-        const timeToSeconds = (date) => {
-            return date.getHours() * 3600 + date.getMinutes() * 60 + date.getSeconds();
-        };
-
-        /** Formats seconds from midnight into HH:MM AM/PM string. */
-        const formatTime = (seconds) => {
-            const date = new Date(0, 0, 0, 0, 0, seconds);
-            return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
-        };
-
-        /** Formats duration (in seconds) to Hh Mm Ss. */
-        const formatDurationHms = (d) => {
-            d = Math.round(Number(d));
-            const h = Math.floor(d / 3600);
-            const m = Math.floor((d % 3600) / 60);
-            const s = d % 60;
-            const hDisplay = h > 0 ? `${h}h ` : "";
-            const mDisplay = m > 0 ? `${m}m ` : "";
-            const sDisplay = s > 0 || (h === 0 && m === 0) ? `${s}s` : "";
-            return (hDisplay + mDisplay + sDisplay).trim() || '0s';
-        };
-        
-        /** Formats duration (in seconds) to Mm Ss for tooltips. */
-        const formatDurationMs = (seconds) => {
-            const m = Math.floor(seconds / 60);
-            const s = seconds % 60;
-            return `${m}m ${s}s`;
-        };
-
-
-        // --- Data Parsing ---
-
-        const parseCSV = (csvText) => {
-            const lines = csvText.split(/\r?\n/);
-            const headers = lines[0].split(',').map(h => h.trim());
-            
-            const colIndex = {
-                fromName: headers.indexOf("From Name"),
-                toName: headers.indexOf("To Name"),
-                result: headers.indexOf("Result"),
-                callLength: headers.indexOf("Call Length"),
-                startTime: headers.indexOf("Call Start Time"),
-                direction: headers.indexOf("Call Direction"),
-                handleTime: headers.indexOf("Handle Time") 
-            };
-
-            callData = [];
-            agentProductivity = new Map(); 
-            let minTimeRaw = Infinity; 
-
-            for (let i = 1; i < lines.length; i++) {
-                if (lines[i].trim() === "") continue;
-                const row = lines[i].split(',');
-
-                const result = row[colIndex.result];
-                const direction = row[colIndex.direction];
-
-                const rawAgentName = (direction === 'Outbound') ? row[colIndex.fromName] : row[colIndex.toName];
-                const agentName = extractAgentName(rawAgentName);
-
-                if (!agentName) continue; 
-
-                const callLength = parseInt(row[colIndex.callLength]) || 0;
-                if (callLength === 0) continue;
-                
-                // --- LOGIC: DETERMINE IF CALL IS VALID PRODUCTIVE TIME AND ITS TYPE (MODIFIED TO INCLUDE TRANSFERS) ---
-                let isValidCall = false;
-                let callType = 'Attempted'; 
-
-                if (VALID_RESULTS_CONNECTED.includes(result)) {
-                    // Connected or Answered (Standard Productive Time)
-                    isValidCall = true;
-                    callType = direction === 'Outbound' ? 'ConnectedOutbound' : 'ConnectedInbound';
-                } else if (VALID_RESULTS_TRANSFERRED.includes(result)) { // NEW: Handle Transfers
-                    isValidCall = true;
-                    callType = 'Transferred';
-                } else if (direction === 'Outbound') {
-                    // Outbound attempt with a duration (Agent was actively dialing/waiting)
-                    isValidCall = true;
-                    callType = 'OutboundAttempt';
-                }
-                
-                if (!isValidCall) continue; 
-                // --- END LOGIC ---
-
-                const startTime = new Date(row[colIndex.startTime]);
-                const startSeconds = timeToSeconds(startTime);
-                const endSeconds = startSeconds + callLength;
-                
-                minTimeRaw = Math.min(minTimeRaw, startSeconds);
-
-                // Collect call details
-                const call = {
-                    agentName,
-                    startTime,
-                    startSeconds,
-                    endSeconds,
-                    callLength,
-                    direction,
-                    result,
-                    callType
-                };
-                callData.push(call);
-                
-                // Aggregate data for statistics table (Handle Time used if available, otherwise Call Length)
-                const productiveTime = parseInt(row[colIndex.handleTime]) || callLength;
-                
-                if (!agentProductivity.has(agentName)) {
-                    agentProductivity.set(agentName, { 
-                        inboundTime: 0, 
-                        outboundTime: 0, 
-                        totalCalls: 0,
-                        calls: [] 
-                    });
-                }
-                const stats = agentProductivity.get(agentName);
-                stats.totalCalls += 1;
-                
-                // Transfers are counted as productive time, and are generally logged as "Inbound" activity 
-                // for the agent who initiated the transfer, or for the agent receiving the transfer.
-                if (direction === 'Inbound' || call.callType === 'Transferred') {
-                    stats.inboundTime += productiveTime;
-                } else {
-                    stats.outboundTime += productiveTime;
-                }
-                stats.calls.push(call);
-            }
-            
-            // Sort calls for the timeline and downtime calculation
-            callData.sort((a, b) => a.startSeconds - b.startSeconds);
-
-            // Sort calls by agent and time for downtime calculation
-            agentProductivity.forEach(stats => {
-                stats.calls.sort((a, b) => a.startSeconds - b.startSeconds);
-            });
-            
-            const firstCallTime = minTimeRaw !== Infinity ? minTimeRaw : START_OF_DAY_SECONDS;
-
-            // Map agents to track index and populate filter
-            const sortedAgentNames = Array.from(agentProductivity.keys()).sort();
-            agentTrackMap = {};
-            sortedAgentNames.forEach((name, index) => {
-                agentTrackMap[name] = index;
-            });
-            
-            selectedAgents = sortedAgentNames;
-            populateAgentFilter(sortedAgentNames);
-
-            // Update date range summary
-            let dateSummary = "No valid call data found.";
-            if (callData.length > 0) {
-                const dates = Array.from(new Set(callData.map(c => c.startTime.toLocaleDateString()))).join(' & ');
-                dateSummary = `Visualization spans activity on: ${dates}. Time axis is standardized to 8:30 AM - 5:30 PM.`;
-                document.getElementById('date-range-summary').textContent = dateSummary;
-                
-                // Set initial scroll position to the first call of the day (UX Improvement)
-                setTimeout(() => {
-                    const pixelsPerSecond = timelineChart.offsetWidth / totalTimeSeconds;
-                    const scrollPosition = (firstCallTime - START_OF_DAY_SECONDS) * pixelsPerSecond;
-                    timelineScrollContainer.scrollLeft = Math.max(0, scrollPosition - 50);
-                }, 50);
-
-            }
-            
-            return sortedAgentNames;
-        };
-        
-        const calculateDailyStats = () => {
-            const stats = [];
-            const agentNames = Array.from(agentProductivity.keys()).filter(name => selectedAgents.includes(name));
-
-            agentNames.forEach(agentName => {
-                const p = agentProductivity.get(agentName);
-                const totalProductiveTime = p.inboundTime + p.outboundTime;
-                
-                // Time Off Phone is calculated based on the 8-hour net workday
-                const timeOffPhone = Math.max(0, NET_WORKDAY_SECONDS - totalProductiveTime);
-
-                stats.push({
-                    agentName,
-                    totalCalls: p.totalCalls,
-                    inboundTime: p.inboundTime,
-                    outboundTime: p.outboundTime,
-                    totalProductiveTime,
-                    timeOffPhone
-                });
-            });
-
-            return stats.sort((a, b) => a.agentName.localeCompare(b.agentName));
-        };
-
-        const renderDailyStats = () => {
-            const stats = calculateDailyStats();
-            const tbody = document.getElementById('stats-table-body');
-            const summaryArea = document.getElementById('stats-summary-area');
-            
-            if (stats.length === 0) {
-                summaryArea.style.display = 'none';
-                return;
-            }
-
-            tbody.innerHTML = '';
-            summaryArea.style.display = 'block';
-
-            stats.forEach((stat, i) => {
-                const row = document.createElement('tr');
-                row.className = `hover:bg-gray-100 ${i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}`;
-                
-                // NEW CONDITION: Highlight if Time Off Phone is > 4 hours (14400 seconds)
-                const offPhoneClass = stat.timeOffPhone > IDLE_TIME_HIGHLIGHT_SECONDS ? 'text-red-700 font-semibold' : 'text-gray-700';
-                
-                row.innerHTML = `
-                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${stat.agentName}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${stat.totalCalls}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-emerald-600">${formatDurationHms(stat.inboundTime)}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-indigo-600">${formatDurationHms(stat.outboundTime)}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${formatDurationHms(stat.totalProductiveTime)}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm ${offPhoneClass}">${formatDurationHms(stat.timeOffPhone)}</td>
-                `;
-                tbody.appendChild(row);
-            });
-        };
-
-
-        // --- Visualization Rendering ---
-        
-        const populateAgentFilter = (agentNames) => {
-            const container = document.getElementById('agent-list-panel');
-            container.innerHTML = ''; 
-            
-            agentNames.forEach(agentName => {
-                const item = document.createElement('label');
-                item.className = 'agent-checkbox-item px-2';
-                item.htmlFor = `timeline-agent-${agentName.replace(/\s/g, '-')}`;
-
-                const checkbox = document.createElement('input');
-                checkbox.type = 'checkbox';
-                checkbox.id = `timeline-agent-${agentName.replace(/\s/g, '-')}`;
-                checkbox.value = agentName;
-                checkbox.checked = true;
-                checkbox.className = 'mr-2 rounded text-emerald-600 focus:ring-emerald-500';
-
-                item.appendChild(checkbox);
-                item.appendChild(document.createTextNode(agentName));
-                container.appendChild(item);
-            });
-            
-            filterFeedback.textContent = `${agentNames.length} Agents Selected`;
-        };
-
-        const renderTimeline = (zoomLevel) => {
-            const width = 1500 * (zoomLevel / 100);
-            timelineChart.style.width = `${width}px`;
-            const pixelsPerSecond = width / totalTimeSeconds;
-
-            timelineChart.innerHTML = '';
-            agentLabelContainer.innerHTML = '';
-
-            const tracksToShow = Object.keys(agentTrackMap).filter(name => selectedAgents.includes(name));
-            
-            const visibleAgentTrackMap = {};
-            tracksToShow.forEach((name, index) => visibleAgentTrackMap[name] = index);
-
-            timelineChart.style.height = `${(tracksToShow.length + 1) * 35}px`;
-
-            // 1. Render Time Axis
-            const timeAxis = document.createElement('div');
-            timeAxis.className = 'absolute top-0 left-0 w-full h-8 flex border-b border-gray-300';
-            
-            // Create time markers every 30 minutes (1800 seconds)
-            for (let s = START_OF_DAY_SECONDS; s <= END_OF_DAY_SECONDS; s += 1800) {
-                const position = ((s - timeMin) / totalTimeSeconds) * 100;
-                if (position > 100) break;
-                
-                const marker = document.createElement('div');
-                marker.className = 'absolute h-full text-xs text-gray-500 pt-1 text-center font-medium';
-                marker.style.left = `${position}%`;
-                marker.style.transform = 'translateX(-50%)';
-                marker.style.borderLeft = '1px dashed #ccc';
-                marker.style.width = '1px';
-                marker.textContent = formatTime(s);
-                
-                timeAxis.appendChild(marker);
-            }
-            timelineChart.appendChild(timeAxis);
-
-            // 2. Render Agent Labels & Tracks
-            tracksToShow.forEach((agentName, index) => {
-                const trackTop = (index + 1) * 35; 
-
-                const label = document.createElement('div');
-                label.className = 'agent-label-row px-3 text-sm font-medium text-gray-800 truncate';
-                label.textContent = agentName;
-                agentLabelContainer.appendChild(label);
-
-                const track = document.createElement('div');
-                track.className = 'agent-track w-full';
-                track.style.top = `${trackTop}px`;
-                track.style.position = 'absolute';
-                timelineChart.appendChild(track);
-            });
-
-            // 3. Render Downtime and Call Bars
-            tracksToShow.forEach(agentName => {
-                const trackIndex = visibleAgentTrackMap[agentName];
-                const trackTop = (trackIndex + 1) * 35;
-                const calls = agentProductivity.get(agentName)?.calls || [];
-                
-                let lastEndTime = START_OF_DAY_SECONDS;
-
-                calls.forEach(call => {
-                    // A. Render Downtime Bar (Gap between calls)
-                    const gapStart = Math.max(lastEndTime, START_OF_DAY_SECONDS);
-                    const gapEnd = Math.min(call.startSeconds, END_OF_DAY_SECONDS);
-                    
-                    if (gapEnd > gapStart) {
-                        const gapDuration = gapEnd - gapStart;
-                        const gapPosition = ((gapStart - timeMin) / totalTimeSeconds) * width;
-                        const gapWidth = (gapDuration / totalTimeSeconds) * width;
-
-                        const downtimeBar = document.createElement('div');
-                        downtimeBar.className = 'downtime-bar';
-                        downtimeBar.style.left = `${gapPosition}px`;
-                        downtimeBar.style.width = `${gapWidth}px`;
-                        downtimeBar.style.top = `${trackTop + 16}px`;
-                        timelineChart.appendChild(downtimeBar);
-                    }
-                    
-                    // Update lastEndTime using the call's *actual* end time (Call Length)
-                    lastEndTime = call.endSeconds;
-
-                    // B. Render Call Bar (Productive Time)
-                    const callStart = Math.max(call.startSeconds, START_OF_DAY_SECONDS);
-                    const callEnd = Math.min(call.endSeconds, END_OF_DAY_SECONDS);
-                    const callDuration = callEnd - callStart;
-
-                    if (callDuration > 0) {
-                        const startPosition = ((callStart - timeMin) / totalTimeSeconds) * width;
-                        const durationWidth = (callDuration / totalTimeSeconds) * width;
-
-                        const bar = document.createElement('div');
-                        
-                        // --- New Color Logic (MODIFIED TO INCLUDE TRANSFERS) ---
-                        let bgColor = 'bg-gray-400';
-                        if (call.callType === 'ConnectedInbound') {
-                            bgColor = 'bg-green-500';
-                        } else if (call.callType === 'ConnectedOutbound') {
-                            bgColor = 'bg-blue-500';
-                        } else if (call.callType === 'Transferred') {
-                            bgColor = 'bg-yellow-500'; // Yellow for Transfers
-                        } else if (call.callType === 'OutboundAttempt') {
-                            bgColor = 'bg-blue-300'; // Light Blue for active dialing/attempt
-                        }
-                        // --- End New Color Logic ---
-
-
-                        bar.className = `call-bar ${bgColor}`;
-                        bar.style.left = `${startPosition}px`;
-                        bar.style.width = `${Math.max(3, durationWidth)}px`; 
-                        bar.style.top = `${trackTop + 5}px`; 
-                        
-                        bar.dataset.agent = call.agentName;
-                        bar.dataset.direction = call.direction;
-                        bar.dataset.start = call.startTime.toLocaleTimeString('en-US');
-                        bar.dataset.duration = formatDurationMs(call.callLength);
-                        bar.dataset.result = call.result;
-
-                        bar.addEventListener('mousemove', showTooltip);
-                        bar.addEventListener('mouseleave', hideTooltip);
-
-                        timelineChart.appendChild(bar);
-                    }
-                });
-
-                // C. Render final downtime (Gap from last call to end of workday)
-                const finalGapStart = Math.max(lastEndTime, START_OF_DAY_SECONDS);
-                const finalGapEnd = END_OF_DAY_SECONDS;
-                
-                if (finalGapEnd > finalGapStart) {
-                    const gapDuration = finalGapEnd - finalGapStart;
-                    const gapPosition = ((finalGapStart - timeMin) / totalTimeSeconds) * width;
-                    const gapWidth = (gapDuration / totalTimeSeconds) * width;
-
-                    const downtimeBar = document.createElement('div');
-                    downtimeBar.className = 'downtime-bar';
-                    downtimeBar.style.left = `${gapPosition}px`;
-                    downtimeBar.style.width = `${gapWidth}px`;
-                    downtimeBar.style.top = `${trackTop + 16}px`;
-                    timelineChart.appendChild(downtimeBar);
-                }
-
-            });
-            
-            filterFeedback.textContent = `${selectedAgents.length} Agents Selected`;
-            renderDailyStats();
-        };
-
-        const showTooltip = (e) => {
-            const bar = e.currentTarget;
-            
-            let directionLabel = bar.dataset.direction;
-            if (VALID_RESULTS_TRANSFERRED.includes(bar.dataset.result)) {
-                directionLabel = 'Transfer';
-            } else if (!VALID_RESULTS_CONNECTED.includes(bar.dataset.result)) {
-                directionLabel = 'Outbound Attempt';
-            }
-
-
-            tooltip.innerHTML = `
-                <div class="text-sm font-bold text-white mb-1">${bar.dataset.agent}</div>
-                <div class="text-xs text-gray-300">
-                    <p><strong>Type:</strong> ${directionLabel}</p>
-                    <p><strong>Result:</strong> ${bar.dataset.result}</p>
-                    <p><strong>Start Time:</strong> ${bar.dataset.start}</p>
-                    <p><strong>Duration:</strong> ${bar.dataset.duration}</p>
-                </div>
-            `;
-            
-            const rect = bar.getBoundingClientRect();
-            const scrollRect = timelineScrollContainer.getBoundingClientRect();
-            const scrollLeft = timelineScrollContainer.scrollLeft;
-
-            const x = rect.left - scrollRect.left + rect.width / 2 + scrollLeft;
-            const y = rect.top - scrollRect.top;
-
-            tooltip.style.left = `${x}px`;
-            tooltip.style.top = `${y}px`;
-            tooltip.classList.add('show-tooltip');
-        };
-
-        const hideTooltip = () => {
-            tooltip.classList.remove('show-tooltip');
-        };
-
-
-        // --- Event Handlers ---
-
-        const handleFilterChange = () => {
-            const checkboxes = document.querySelectorAll('#agent-list-panel input[type="checkbox"]');
-            selectedAgents = [];
-            checkboxes.forEach(cb => {
-                if (cb.checked) selectedAgents.push(cb.value);
-            });
-            renderTimeline(zoomSlider.value);
-        };
-
-        const handleClearSelection = () => {
-            const checkboxes = document.querySelectorAll('#agent-list-panel input[type="checkbox"]');
-            checkboxes.forEach(cb => cb.checked = false);
-            handleFilterChange();
-        };
-
-        const handleZoomChange = (e) => {
-            renderTimeline(e.target.value);
-        };
-        
-        const handleFileLoad = (e) => {
-            const csvText = e.target.result;
-            const agentNames = parseCSV(csvText);
-            
-            if (agentNames.length > 0) {
-                renderTimeline(zoomSlider.value);
-                document.getElementById('visualization-area').classList.remove('hidden');
-            } else {
-                document.getElementById('visualization-area').classList.add('hidden');
-                dropText.textContent = "Data loaded, but no matching connected calls found for tracked agents.";
-            }
-        };
-
-        const handleFileUpload = (file) => {
-            if (file.name.toLowerCase().endsWith('.csv')) {
-                const reader = new FileReader();
-                reader.onload = handleFileLoad;
-                reader.readAsText(file);
-                dropText.textContent = `Processing ${file.name}...`;
-            } else {
-                dropText.textContent = "Please drop a .CSV file for the Call Activity Timeline.";
-            }
-        };
-
-        // --- Initialization ---
-
-        const initApp = () => {
-            // File Upload / Drop Area setup
-            csvFileInput.addEventListener('change', (e) => {
-                const file = e.target.files[0];
-                if (file) handleFileUpload(file);
-            });
-
-            // Drag and Drop Listeners
-            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-                dropArea.addEventListener(eventName, (e) => { e.preventDefault(); e.stopPropagation(); }, false);
-            });
-            
-            dropArea.addEventListener('drop', (e) => {
-                const dt = e.dataTransfer;
-                if (dt.files.length) handleFileUpload(dt.files[0]);
-            }, false);
-            dropArea.addEventListener('click', () => csvFileInput.click());
-
-            // Control Handlers
-            zoomSlider.addEventListener('input', handleZoomChange);
-            document.getElementById('applyFilter').addEventListener('click', handleFilterChange);
-            document.getElementById('clearSelection').addEventListener('click', handleClearSelection);
-            
-            // Initial render state
-            renderTimeline(zoomSlider.value);
-        };
-
-        window.onload = initApp;
-    </script>
+    <div id="app" class="max-w-7xl mx-auto">
+        <header class="mb-8 p-4 bg-white rounded-xl shadow-lg border-b-4 border-emerald-500">
+            <h1 class="text-3xl font-bold text-gray-800">Agent Call Activity Timeline</h1>
+            <p id="date-range-summary" class="text-gray-500 mt-1">Load a CSV file to begin analysis.</p>
+        </header>
+
+                <div class="flex justify-between items-start mb-6 p-4 bg-white rounded-xl shadow">
+            <div class="flex items-center space-x-4">
+                <div class="flex flex-col">
+                    <label class="text-sm font-medium text-gray-700">Zoom Level:</label>
+                    <input type="range" id="zoom-slider" min="100" max="400" value="100" class="w-48 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer range-sm">
+                </div>
+            </div>
+
+                        <div class="flex flex-col items-end">
+                <div class="flex items-center mb-1">
+                    <label class="text-sm font-medium text-gray-700 mr-2">Filter Agents:</label>
+                    <span id="filter-feedback" class="text-xs font-semibold px-2 py-1 rounded-full bg-emerald-100 text-emerald-700">0 Agents Selected</span>
+                </div>
+                <div id="agent-list-panel">
+                    <p class="text-gray-500 text-center text-sm">Upload data to load agents.</p>
+                </div>
+                <div class="flex space-x-2 mt-2">
+                    <button id="applyFilter" class="px-3 py-2 bg-emerald-500 text-white rounded-md hover:bg-emerald-600 transition font-medium text-sm">Apply Filter</button>
+                    <button id="clearSelection" class="px-3 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition font-medium text-sm">Clear Selection</button>
+                </div>
+            </div>
+        </div>
+
+                <div id="drop-area" class="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center bg-white hover:border-emerald-400 transition cursor-pointer mb-8">
+            <input type="file" id="csvFileInput" accept=".csv" class="hidden">
+            <p class="text-lg font-medium text-gray-700">**DROP RINGCENTRAL CALL LOG CSV FILE HERE**</p>
+            <p class="text-sm text-gray-500 mt-1">Accepts single-day CSV only. No XLSX conversion needed for this tool.</p>
+        </div>
+
+                <div id="visualization-area" class="flex bg-white rounded-xl shadow-lg overflow-hidden border">
+                        <div id="agent-names-column" class="flex-shrink-0 w-48 border-r bg-gray-50">
+                <div id="agent-labels-header" class="px-3 text-xs font-semibold text-gray-600 uppercase border-b border-gray-300 flex items-center">
+                    Agent Name
+                </div>
+                <div id="agent-label-container">
+                                    </div>
+            </div>
+
+                        <div id="timeline-scroll-container" class="timeline-container relative">
+                <div id="timeline-chart" class="timeline-chart">
+                                    </div>
+            </div>
+        </div>
+
+                <div id="call-tooltip" class="tooltip"></div>
+        
+                <div id="stats-summary-area" class="mt-8 p-6 bg-white rounded-xl shadow-lg border-t-4 border-emerald-500" style="display: none;">
+            <h2 class="text-2xl font-semibold text-gray-700 mb-4">Daily Productivity Metrics (8-Hour Net)</h2>
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Agent Name</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Calls</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Inbound Handle Time</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Outbound Handle Time</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Productive Time</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-red-600 uppercase tracking-wider">Time Off Phone (8h)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="stats-table-body" class="bg-white divide-y divide-gray-200"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Constants ---
+        const VALID_RESULTS_CONNECTED = ["Connected", "Answered"];
+        const VALID_RESULTS_TRANSFERRED = ["Transferred", "Transferred / To Voicemail"];
+        
+        // --- UPDATED AGENT LIST ---
+        const AGENT_LIST = [
+            "ALEJANDRO SATUNINO CAMPOS-PEREZ", 
+            "AUSTIN MITCHELL", 
+            "Brady Olson", 
+            "Brandon Ridder", 
+            "BRANDON RUSSOM", // ADDED: Brandon Russom was in the User sheet but missing from this list
+            "BRENDAN BOH", 
+            "Cullen Manley", 
+            "David Ryan", 
+            "DOMINIQUE GONZALES", // ADDED: Dominique Gonzales was in the Call log but missing from this list
+            "Duncan Cannon", 
+            "Hayden Holcomb", 
+            "Joel Jubber", 
+            "John Udick", 
+            "KIMBERLY RAMIREZ", 
+            "MARCOS HERNANDEZ", 
+            "MOUNIR ROSENDO", // ADDED: Mounir Rosendo was in the Call log but missing from this list
+            "Natasha Fowler", 
+            "Nathan Hill", 
+            "Olivia Kasten", 
+            "Tammy Lummus", 
+            "Wanda Scott"
+        ];
+        // --- END UPDATED AGENT LIST ---
+
+        // Pre-clean and map the agent list for efficient lookup
+        const AGENT_MAP = new Map(AGENT_LIST.map(name => [name.toUpperCase(), name]));
+        
+        // --- Standardized Workday (8:30 AM to 5:30 PM) ---
+        const START_OF_DAY_SECONDS = 8.5 * 3600; // 8:30 AM
+        const END_OF_DAY_SECONDS = 17.5 * 3600; // 5:30 PM
+        const NET_WORKDAY_SECONDS = 8 * 3600; // 8 hours net productive time (9 hours gross - 1 hour lunch)
+        
+        // --- Custom Highlight Threshold (4 hours) ---
+        const IDLE_TIME_HIGHLIGHT_SECONDS = 4 * 3600; 
+
+
+        // --- State ---
+        let callData = [];
+        let agentTrackMap = {};
+        let agentProductivity = new Map();
+        let totalTimeSeconds = END_OF_DAY_SECONDS - START_OF_DAY_SECONDS;
+        let timeMin = START_OF_DAY_SECONDS;
+        let timeMax = END_OF_DAY_SECONDS;
+        let selectedAgents = [];
+        
+        // --- DOM Elements ---
+        const timelineChart = document.getElementById('timeline-chart');
+        const agentLabelContainer = document.getElementById('agent-label-container');
+        const timelineScrollContainer = document.getElementById('timeline-scroll-container');
+        const tooltip = document.getElementById('call-tooltip');
+        const zoomSlider = document.getElementById('zoom-slider');
+        const filterFeedback = document.getElementById('filter-feedback');
+        const dropArea = document.getElementById('drop-area'); 
+        const csvFileInput = document.getElementById('csvFileInput'); 
+        const dropText = document.querySelector('#drop-area p.text-lg'); 
+
+        // --- Utility Functions ---
+
+        /** Extracts clean name from 'Name (Extension)' format and maps it to a standard name from AGENT_LIST. */
+        const extractAgentName = (fullName) => {
+            if (!fullName) return null;
+            
+            // 1. Clean the input: remove extension/number in parentheses and trim.
+            let cleanedInput = fullName.split('(')[0].trim();
+            const cleanedInputUpper = cleanedInput.toUpperCase();
+
+            // 2. Exclude system/direct calls
+            if (cleanedInputUpper.includes('DIRECT') || cleanedInputUpper.includes('SERVICE')) return null;
+            if (cleanedInputUpper.length === 0) return null;
+
+            // 3. Look for the best match in the AGENT_MAP
+            for (const [uppercaseTarget, originalName] of AGENT_MAP.entries()) {
+                // Check for exact match or begins with (robust against slight variations)
+                if (cleanedInputUpper === uppercaseTarget || cleanedInputUpper.startsWith(uppercaseTarget)) {
+                    return originalName;
+                }
+            }
+
+            // 4. Fallback: Check if the cleaned input itself is a name in the list (e.g., if it's an internal extension without formatting)
+            const foundMatch = AGENT_LIST.find(name => cleanedInputUpper === name.toUpperCase());
+            if(foundMatch) return foundMatch;
+
+            return null;
+        };
+
+        /** Converts Date object to seconds from midnight. */
+        const timeToSeconds = (date) => {
+            return date.getHours() * 3600 + date.getMinutes() * 60 + date.getSeconds();
+        };
+
+        /** Formats seconds from midnight into HH:MM AM/PM string. */
+        const formatTime = (seconds) => {
+            const date = new Date(0, 0, 0, 0, 0, seconds);
+            return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+        };
+
+        /** Formats duration (in seconds) to Hh Mm Ss. */
+        const formatDurationHms = (d) => {
+            d = Math.round(Number(d));
+            const h = Math.floor(d / 3600);
+            const m = Math.floor((d % 3600) / 60);
+            const s = d % 60;
+            const hDisplay = h > 0 ? `${h}h ` : "";
+            const mDisplay = m > 0 ? `${m}m ` : "";
+            const sDisplay = s > 0 || (h === 0 && m === 0) ? `${s}s` : "";
+            return (hDisplay + mDisplay + sDisplay).trim() || '0s';
+        };
+        
+        /** Formats duration (in seconds) to Mm Ss for tooltips. */
+        const formatDurationMs = (seconds) => {
+            const m = Math.floor(seconds / 60);
+            const s = seconds % 60;
+            return `${m}m ${s}s`;
+        };
+
+
+        // --- Data Parsing (FIXED) ---
+
+        const parseCSV = (csvText) => {
+            const lines = csvText.split(/\r?\n/);
+            const headers = lines[0].split(',').map(h => h.trim());
+            
+            const colIndex = {
+                fromName: headers.indexOf("From Name"),
+                toName: headers.indexOf("To Name"),
+                result: headers.indexOf("Result"),
+                callLength: headers.indexOf("Call Length"),
+                startTime: headers.indexOf("Call Start Time"),
+                direction: headers.indexOf("Call Direction"),
+                handleTime: headers.indexOf("Handle Time") 
+            };
+
+            callData = [];
+            agentProductivity = new Map(); 
+            let minTimeRaw = Infinity; 
+
+            for (let i = 1; i < lines.length; i++) {
+                if (lines[i].trim() === "") continue;
+                const row = lines[i].split(',');
+
+                const result = row[colIndex.result];
+                const direction = row[colIndex.direction];
+                
+                // --- FIX: Check both From Name and To Name for the Agent's identity ---
+                let agentName;
+                
+                // 1. Try From Name (usually the agent for Outbound, or when agent initiates a transfer)
+                agentName = extractAgentName(row[colIndex.fromName]);
+
+                if (!agentName) {
+                    // 2. If not found, try To Name (often the agent for Inbound calls routed to them)
+                    agentName = extractAgentName(row[colIndex.toName]);
+                }
+                // --- END FIX ---
+                
+                if (!agentName) continue; 
+
+                const callLength = parseInt(row[colIndex.callLength]) || 0;
+                if (callLength === 0) continue;
+                
+                // --- LOGIC: DETERMINE IF CALL IS VALID PRODUCTIVE TIME AND ITS TYPE (Modified for Transfers) ---
+                let isValidCall = false;
+                let callType = 'Attempted'; 
+
+                if (VALID_RESULTS_CONNECTED.includes(result)) {
+                    // Connected or Answered (Standard Productive Time)
+                    isValidCall = true;
+                    callType = direction === 'Outbound' ? 'ConnectedOutbound' : 'ConnectedInbound';
+                } else if (VALID_RESULTS_TRANSFERRED.includes(result)) { 
+                    isValidCall = true;
+                    callType = 'Transferred';
+                } else if (direction === 'Outbound' && callLength >= 5) { // Only count outbound attempts > 5s
+                    isValidCall = true;
+                    callType = 'OutboundAttempt';
+                }
+                
+                if (!isValidCall) continue; 
+                // --- END LOGIC ---
+
+                const startTime = new Date(row[colIndex.startTime]);
+                const startSeconds = timeToSeconds(startTime);
+                const endSeconds = startSeconds + callLength;
+                
+                minTimeRaw = Math.min(minTimeRaw, startSeconds);
+
+                // Collect call details
+                const call = {
+                    agentName,
+                    startTime,
+                    startSeconds,
+                    endSeconds,
+                    callLength,
+                    direction,
+                    result,
+                    callType
+                };
+                callData.push(call);
+                
+                // Aggregate data for statistics table (Handle Time used if available, otherwise Call Length)
+                // NOTE: Handle Time column is often blank in this report, so we rely on Call Length for visualization.
+                const productiveTime = parseInt(row[colIndex.handleTime]) || callLength;
+                
+                if (!agentProductivity.has(agentName)) {
+                    agentProductivity.set(agentName, { 
+                        inboundTime: 0, 
+                        outboundTime: 0, 
+                        totalCalls: 0,
+                        calls: [] 
+                    });
+                }
+                const stats = agentProductivity.get(agentName);
+                stats.totalCalls += 1;
+                
+                // Assign productive time based on direction/type
+                if (call.callType === 'ConnectedInbound' || call.callType === 'Transferred') {
+                    stats.inboundTime += productiveTime;
+                } else {
+                    stats.outboundTime += productiveTime;
+                }
+                stats.calls.push(call);
+            }
+            
+            // Sort calls for the timeline and downtime calculation
+            callData.sort((a, b) => a.startSeconds - b.startSeconds);
+
+            // Sort calls by agent and time for downtime calculation
+            agentProductivity.forEach(stats => {
+                stats.calls.sort((a, b) => a.startSeconds - b.startSeconds);
+            });
+            
+            const firstCallTime = minTimeRaw !== Infinity ? minTimeRaw : START_OF_DAY_SECONDS;
+
+            // Map agents to track index and populate filter
+            const sortedAgentNames = Array.from(agentProductivity.keys()).sort();
+            agentTrackMap = {};
+            sortedAgentNames.forEach((name, index) => {
+                agentTrackMap[name] = index;
+            });
+            
+            selectedAgents = sortedAgentNames;
+            populateAgentFilter(sortedAgentNames);
+
+            // Update date range summary
+            let dateSummary = "No valid call data found.";
+            if (callData.length > 0) {
+                const dates = Array.from(new Set(callData.map(c => c.startTime.toLocaleDateString()))).join(' & ');
+                dateSummary = `Visualization spans activity on: ${dates}. Time axis is standardized to 8:30 AM - 5:30 PM.`;
+                document.getElementById('date-range-summary').textContent = dateSummary;
+                
+                // Set initial scroll position to the first call of the day (UX Improvement)
+                setTimeout(() => {
+                    const pixelsPerSecond = timelineChart.offsetWidth / totalTimeSeconds;
+                    const scrollPosition = (firstCallTime - START_OF_DAY_SECONDS) * pixelsPerSecond;
+                    timelineScrollContainer.scrollLeft = Math.max(0, scrollPosition - 50);
+                }, 50);
+
+            }
+            
+            return sortedAgentNames;
+        };
+        
+        const calculateDailyStats = () => {
+            const stats = [];
+            const agentNames = Array.from(agentProductivity.keys()).filter(name => selectedAgents.includes(name));
+
+            agentNames.forEach(agentName => {
+                const p = agentProductivity.get(agentName);
+                const totalProductiveTime = p.inboundTime + p.outboundTime;
+                
+                // Time Off Phone is calculated based on the 8-hour net workday
+                const timeOffPhone = Math.max(0, NET_WORKDAY_SECONDS - totalProductiveTime);
+
+                stats.push({
+                    agentName,
+                    totalCalls: p.totalCalls,
+                    inboundTime: p.inboundTime,
+                    outboundTime: p.outboundTime,
+                    totalProductiveTime,
+                    timeOffPhone
+                });
+            });
+
+            return stats.sort((a, b) => a.agentName.localeCompare(b.agentName));
+        };
+
+        const renderDailyStats = () => {
+            const stats = calculateDailyStats();
+            const tbody = document.getElementById('stats-table-body');
+            const summaryArea = document.getElementById('stats-summary-area');
+            
+            if (stats.length === 0) {
+                summaryArea.style.display = 'none';
+                return;
+            }
+
+            tbody.innerHTML = '';
+            summaryArea.style.display = 'block';
+
+            stats.forEach((stat, i) => {
+                const row = document.createElement('tr');
+                row.className = `hover:bg-gray-100 ${i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}`;
+                
+                // NEW CONDITION: Highlight if Time Off Phone is > 4 hours (14400 seconds)
+                const offPhoneClass = stat.timeOffPhone > IDLE_TIME_HIGHLIGHT_SECONDS ? 'text-red-700 font-semibold' : 'text-gray-700';
+                
+                row.innerHTML = `
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${stat.agentName}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${stat.totalCalls}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-emerald-600">${formatDurationHms(stat.inboundTime)}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-indigo-600">${formatDurationHms(stat.outboundTime)}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${formatDurationHms(stat.totalProductiveTime)}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm ${offPhoneClass}">${formatDurationHms(stat.timeOffPhone)}</td>
+                `;
+                tbody.appendChild(row);
+            });
+        };
+
+
+        // --- Visualization Rendering ---
+        
+        const populateAgentFilter = (agentNames) => {
+            const container = document.getElementById('agent-list-panel');
+            container.innerHTML = ''; 
+            
+            agentNames.forEach(agentName => {
+                const item = document.createElement('label');
+                item.className = 'agent-checkbox-item px-2';
+                item.htmlFor = `timeline-agent-${agentName.replace(/\s/g, '-')}`;
+
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.id = `timeline-agent-${agentName.replace(/\s/g, '-')}`;
+                checkbox.value = agentName;
+                checkbox.checked = true;
+                checkbox.className = 'mr-2 rounded text-emerald-600 focus:ring-emerald-500';
+
+                item.appendChild(checkbox);
+                item.appendChild(document.createTextNode(agentName));
+                container.appendChild(item);
+            });
+            
+            filterFeedback.textContent = `${agentNames.length} Agents Selected`;
+        };
+
+        const renderTimeline = (zoomLevel) => {
+            const width = 1500 * (zoomLevel / 100);
+            timelineChart.style.width = `${width}px`;
+            const pixelsPerSecond = width / totalTimeSeconds;
+
+            timelineChart.innerHTML = '';
+            agentLabelContainer.innerHTML = '';
+
+            const tracksToShow = Object.keys(agentTrackMap).filter(name => selectedAgents.includes(name));
+            
+            const visibleAgentTrackMap = {};
+            tracksToShow.forEach((name, index) => visibleAgentTrackMap[name] = index);
+
+            timelineChart.style.height = `${(tracksToShow.length + 1) * 35}px`;
+
+            // 1. Render Time Axis
+            const timeAxis = document.createElement('div');
+            timeAxis.className = 'absolute top-0 left-0 w-full h-8 flex border-b border-gray-300';
+            
+            // Create time markers every 30 minutes (1800 seconds)
+            for (let s = START_OF_DAY_SECONDS; s <= END_OF_DAY_SECONDS; s += 1800) {
+                const position = ((s - timeMin) / totalTimeSeconds) * 100;
+                if (position > 100) break;
+                
+                const marker = document.createElement('div');
+                marker.className = 'absolute h-full text-xs text-gray-500 pt-1 text-center font-medium';
+                marker.style.left = `${position}%`;
+                marker.style.transform = 'translateX(-50%)';
+                marker.style.borderLeft = '1px dashed #ccc';
+                marker.style.width = '1px';
+                marker.textContent = formatTime(s);
+                
+                timeAxis.appendChild(marker);
+            }
+            timelineChart.appendChild(timeAxis);
+
+            // 2. Render Agent Labels & Tracks
+            tracksToShow.forEach((agentName, index) => {
+                const trackTop = (index + 1) * 35; 
+
+                const label = document.createElement('div');
+                label.className = 'agent-label-row px-3 text-sm font-medium text-gray-800 truncate';
+                label.textContent = agentName;
+                agentLabelContainer.appendChild(label);
+
+                const track = document.createElement('div');
+                track.className = 'agent-track w-full';
+                track.style.top = `${trackTop}px`;
+                track.style.position = 'absolute';
+                timelineChart.appendChild(track);
+            });
+
+            // 3. Render Downtime and Call Bars
+            tracksToShow.forEach(agentName => {
+                const trackIndex = visibleAgentTrackMap[agentName];
+                const trackTop = (trackIndex + 1) * 35;
+                const calls = agentProductivity.get(agentName)?.calls || [];
+                
+                let lastEndTime = START_OF_DAY_SECONDS;
+
+                calls.forEach(call => {
+                    // A. Render Downtime Bar (Gap between calls)
+                    const gapStart = Math.max(lastEndTime, START_OF_DAY_SECONDS);
+                    const gapEnd = Math.min(call.startSeconds, END_OF_DAY_SECONDS);
+                    
+                    if (gapEnd > gapStart) {
+                        const gapDuration = gapEnd - gapStart;
+                        const gapPosition = ((gapStart - timeMin) / totalTimeSeconds) * width;
+                        const gapWidth = (gapDuration / totalTimeSeconds) * width;
+
+                        const downtimeBar = document.createElement('div');
+                        downtimeBar.className = 'downtime-bar';
+                        downtimeBar.style.left = `${gapPosition}px`;
+                        downtimeBar.style.width = `${gapWidth}px`;
+                        downtimeBar.style.top = `${trackTop + 16}px`;
+                        timelineChart.appendChild(downtimeBar);
+                    }
+                    
+                    // Update lastEndTime using the call's *actual* end time (Call Length)
+                    lastEndTime = call.endSeconds;
+
+                    // B. Render Call Bar (Productive Time)
+                    const callStart = Math.max(call.startSeconds, START_OF_DAY_SECONDS);
+                    const callEnd = Math.min(call.endSeconds, END_OF_DAY_SECONDS);
+                    const callDuration = callEnd - callStart;
+
+                    if (callDuration > 0) {
+                        const startPosition = ((callStart - timeMin) / totalTimeSeconds) * width;
+                        const durationWidth = (callDuration / totalTimeSeconds) * width;
+
+                        const bar = document.createElement('div');
+                        
+                        // --- New Color Logic (MODIFIED TO INCLUDE TRANSFERS) ---
+                        let bgColor = 'bg-gray-400';
+                        if (call.callType === 'ConnectedInbound') {
+                            bgColor = 'bg-green-500';
+                        } else if (call.callType === 'ConnectedOutbound') {
+                            bgColor = 'bg-blue-500';
+                        } else if (call.callType === 'Transferred') {
+                            bgColor = 'bg-yellow-500'; // Yellow for Transfers
+                        } else if (call.callType === 'OutboundAttempt') {
+                            bgColor = 'bg-blue-300'; // Light Blue for active dialing/attempt
+                        }
+                        // --- End New Color Logic ---
+
+
+                        bar.className = `call-bar ${bgColor}`;
+                        bar.style.left = `${startPosition}px`;
+                        bar.style.width = `${Math.max(3, durationWidth)}px`; 
+                        bar.style.top = `${trackTop + 5}px`; 
+                        
+                        bar.dataset.agent = call.agentName;
+                        bar.dataset.direction = call.direction;
+                        bar.dataset.start = call.startTime.toLocaleTimeString('en-US');
+                        bar.dataset.duration = formatDurationMs(call.callLength);
+                        bar.dataset.result = call.result;
+
+                        bar.addEventListener('mousemove', showTooltip);
+                        bar.addEventListener('mouseleave', hideTooltip);
+
+                        timelineChart.appendChild(bar);
+                    }
+                });
+
+                // C. Render final downtime (Gap from last call to end of workday)
+                const finalGapStart = Math.max(lastEndTime, START_OF_DAY_SECONDS);
+                const finalGapEnd = END_OF_DAY_SECONDS;
+                
+                if (finalGapEnd > finalGapStart) {
+                    const gapDuration = finalGapEnd - finalGapStart;
+                    const gapPosition = ((finalGapStart - timeMin) / totalTimeSeconds) * width;
+                    const gapWidth = (gapDuration / totalTimeSeconds) * width;
+
+                    const downtimeBar = document.createElement('div');
+                    downtimeBar.className = 'downtime-bar';
+                    downtimeBar.style.left = `${gapPosition}px`;
+                    downtimeBar.style.width = `${gapWidth}px`;
+                    downtimeBar.style.top = `${trackTop + 16}px`;
+                    timelineChart.appendChild(downtimeBar);
+                }
+
+            });
+            
+            filterFeedback.textContent = `${selectedAgents.length} Agents Selected`;
+            renderDailyStats();
+        };
+
+        const showTooltip = (e) => {
+            const bar = e.currentTarget;
+            
+            let directionLabel = bar.dataset.direction;
+            if (VALID_RESULTS_TRANSFERRED.includes(bar.dataset.result)) {
+                directionLabel = 'Transfer';
+            } else if (!VALID_RESULTS_CONNECTED.includes(bar.dataset.result)) {
+                directionLabel = 'Outbound Attempt';
+            }
+
+
+            tooltip.innerHTML = `
+                <div class="text-sm font-bold text-white mb-1">${bar.dataset.agent}</div>
+                <div class="text-xs text-gray-300">
+                    <p><strong>Type:</strong> ${directionLabel}</p>
+                    <p><strong>Result:</strong> ${bar.dataset.result}</p>
+                    <p><strong>Start Time:</strong> ${bar.dataset.start}</p>
+                    <p><strong>Duration:</strong> ${bar.dataset.duration}</p>
+                </div>
+            `;
+            
+            const rect = bar.getBoundingClientRect();
+            const scrollRect = timelineScrollContainer.getBoundingClientRect();
+            const scrollLeft = timelineScrollContainer.scrollLeft;
+
+            const x = rect.left - scrollRect.left + rect.width / 2 + scrollLeft;
+            const y = rect.top - scrollRect.top;
+
+            tooltip.style.left = `${x}px`;
+            tooltip.style.top = `${y}px`;
+            tooltip.classList.add('show-tooltip');
+        };
+
+        const hideTooltip = () => {
+            tooltip.classList.remove('show-tooltip');
+        };
+
+
+        // --- Event Handlers ---
+
+        const handleFilterChange = () => {
+            const checkboxes = document.querySelectorAll('#agent-list-panel input[type="checkbox"]');
+            selectedAgents = [];
+            checkboxes.forEach(cb => {
+                if (cb.checked) selectedAgents.push(cb.value);
+            });
+            renderTimeline(zoomSlider.value);
+        };
+
+        const handleClearSelection = () => {
+            const checkboxes = document.querySelectorAll('#agent-list-panel input[type="checkbox"]');
+            checkboxes.forEach(cb => cb.checked = false);
+            handleFilterChange();
+        };
+
+        const handleZoomChange = (e) => {
+            renderTimeline(e.target.value);
+        };
+        
+        const handleFileLoad = (e) => {
+            const csvText = e.target.result;
+            const agentNames = parseCSV(csvText);
+            
+            if (agentNames.length > 0) {
+                renderTimeline(zoomSlider.value);
+                document.getElementById('visualization-area').classList.remove('hidden');
+            } else {
+                document.getElementById('visualization-area').classList.add('hidden');
+                dropText.textContent = "Data loaded, but no matching connected calls found for tracked agents.";
+            }
+        };
+
+        const handleFileUpload = (file) => {
+            if (file.name.toLowerCase().endsWith('.csv')) {
+                const reader = new FileReader();
+                reader.onload = handleFileLoad;
+                reader.readAsText(file);
+                dropText.textContent = `Processing ${file.name}...`;
+            } else {
+                dropText.textContent = "Please drop a .CSV file for the Call Activity Timeline.";
+            }
+        };
+
+        // --- Initialization ---
+
+        const initApp = () => {
+            // File Upload / Drop Area setup
+            csvFileInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) handleFileUpload(file);
+            });
+
+            // Drag and Drop Listeners
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                dropArea.addEventListener(eventName, (e) => { e.preventDefault(); e.stopPropagation(); }, false);
+            });
+            
+            dropArea.addEventListener('drop', (e) => {
+                const dt = e.dataTransfer;
+                if (dt.files.length) handleFileUpload(dt.files[0]);
+            }, false);
+            dropArea.addEventListener('click', () => csvFileInput.click());
+
+            // Control Handlers
+            zoomSlider.addEventListener('input', handleZoomChange);
+            document.getElementById('applyFilter').addEventListener('click', handleFilterChange);
+            document.getElementById('clearSelection').addEventListener('click', handleClearSelection);
+            
+            // Initial render state
+            renderTimeline(zoomSlider.value);
+        };
+
+        window.onload = initApp;
+    </script>
 </body>
 </html>
-final update 10.24
+11.11
