@@ -1,609 +1,228 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Agent Call Activity Dashboard</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-
-  <!-- Tailwind -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <!-- SheetJS for XLSX parsing -->
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <!-- Plotly for heatmap -->
-  <script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
-
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
-    body { font-family: 'Inter', sans-serif; background: #f7f9fb; }
-    .card { background:#fff; border:1px solid #e5e7eb; border-radius:14px; box-shadow:0 1px 2px rgba(0,0,0,0.04); }
-    .dash-header { border-bottom:4px solid #10b981; }
-    .toggle-chevron { transition: transform .2s ease; }
-    .collapse[aria-expanded="true"] .toggle-chevron { transform: rotate(90deg); }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Call Activity Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1"></script>
+<style>
+body {
+  font-family: system-ui, sans-serif;
+  background: #f7f9fb;
+  margin: 0;
+  padding: 20px;
+}
+.container {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+h1 {
+  text-align: center;
+  color: #222;
+}
+.upload-box {
+  border: 2px dashed #ccc;
+  border-radius: 10px;
+  padding: 30px;
+  text-align: center;
+  background: #fff;
+  margin-bottom: 30px;
+}
+button {
+  background: #2e7d32;
+  color: white;
+  border: none;
+  padding: 10px 25px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+button:hover {
+  background: #256628;
+}
+.hidden {
+  display: none;
+}
+.card {
+  background: #fff;
+  padding: 25px;
+  border-radius: 12px;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+  margin-bottom: 25px;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+th, td {
+  text-align: left;
+  padding: 8px;
+}
+th {
+  background-color: #f3f4f6;
+  border-bottom: 2px solid #ddd;
+}
+tr:nth-child(even) { background-color: #f9f9f9; }
+.toggle-btn {
+  background: #3949ab;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 20px;
+  margin-top: 15px;
+  cursor: pointer;
+}
+.toggle-btn:hover { background: #303f9f; }
+canvas { width: 100%!important; height: 450px!important; }
+</style>
 </head>
-<body class="min-h-screen text-gray-900">
-
-  <div class="max-w-7xl mx-auto px-4 py-8">
-    <!-- Header -->
-    <header class="card dash-header p-6 mb-6">
-      <h1 class="text-3xl font-bold">Agent Call Activity Dashboard</h1>
-      <p id="date-range-summary" class="text-gray-500 mt-1">
-        Upload the Calls and Users XLSX reports to begin.
-      </p>
-    </header>
-
-    <!-- Uploads -->
-    <div class="grid md:grid-cols-2 gap-6 mb-6">
-      <!-- Calls -->
-      <div class="card p-6">
-        <h2 class="text-xl font-semibold mb-2">Upload <span class="text-emerald-600">Calls</span> File (.xlsx)</h2>
-        <p class="text-sm text-gray-600 mb-4">
-          Use RingCentral <strong>Multi-Day Agent Stats — Calls</strong> export (sheet “Calls”).
-        </p>
-        <div id="drop-calls" class="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer hover:bg-emerald-50">
-          <p class="text-gray-700 mb-2">Drag & drop, or click to choose</p>
-          <input type="file" id="fileCalls" accept=".xlsx,.xls" class="hidden">
-          <button id="btnCalls" class="px-4 py-2 rounded-md bg-emerald-500 text-white hover:bg-emerald-600">Select Calls File</button>
-          <p id="callsStatus" class="mt-3 text-sm text-gray-500">No file loaded</p>
-        </div>
-      </div>
-
-      <!-- Users -->
-      <div class="card p-6">
-        <h2 class="text-xl font-semibold mb-2">Upload <span class="text-indigo-600">Users</span> File (.xlsx)</h2>
-        <p class="text-sm text-gray-600 mb-4">
-          Use RingCentral <strong>Multi-Day Agent Stats — Users</strong> export (sheet “Users”).
-        </p>
-        <div id="drop-users" class="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer hover:bg-indigo-50">
-          <p class="text-gray-700 mb-2">Drag & drop, or click to choose</p>
-          <input type="file" id="fileUsers" accept=".xlsx,.xls" class="hidden">
-          <button id="btnUsers" class="px-4 py-2 rounded-md bg-indigo-500 text-white hover:bg-indigo-600">Select Users File</button>
-          <p id="usersStatus" class="mt-3 text-sm text-gray-500">No file loaded</p>
-        </div>
-      </div>
-    </div>
-
-    <!-- Heatmap -->
-    <section id="heatmapCard" class="card p-6 mb-6 hidden">
-      <div class="flex items-center justify-between">
-        <h2 class="text-2xl font-semibold">📅 Heatmap — Call Activity by Hour</h2>
-        <div class="text-sm text-gray-500" id="heatmapLegend">Green = Inbound, Blue = Outbound, Yellow = Transfers grouped as "calls"</div>
-      </div>
-      <div class="mt-4">
-        <div id="heatmap" style="width:100%;height:520px;"></div>
-      </div>
-    </section>
-
-    <!-- Summary -->
-    <section id="summaryCard" class="card p-6 mb-6 hidden">
-      <h2 class="text-2xl font-semibold mb-4">📊 Daily Productivity Metrics (8-Hour Net)</h2>
-      <div class="overflow-x-auto">
-        <table class="min-w-full">
-          <thead class="bg-gray-50">
-            <tr>
-              <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Agent</th>
-              <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Total Calls</th>
-              <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Inbound Time</th>
-              <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Outbound Time</th>
-              <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Total Talk Time</th>
-              <th class="px-4 py-2 text-left text-xs font-semibold text-red-600 uppercase">Time Off Phone (8h)</th>
-            </tr>
-          </thead>
-          <tbody id="summaryBody" class="divide-y divide-gray-100"></tbody>
-        </table>
-      </div>
-    </section>
-
-    <!-- Discrepancies (collapsible) -->
-    <section id="diffCard" class="card mb-10 hidden">
-      <button id="diffToggle" class="w-full text-left px-6 py-4 flex items-center justify-between">
-        <span class="text-xl font-semibold">🔎 Show Differences (Calls vs Users)</span>
-        <svg class="w-5 h-5 toggle-chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
-        </svg>
-      </button>
-      <div id="diffPanel" class="px-6 pb-6 hidden">
-        <div class="overflow-x-auto">
-          <table class="min-w-full">
-            <thead class="bg-gray-50">
-              <tr>
-                <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Agent</th>
-                <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Calls (Calls file)</th>
-                <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Calls (Users file)</th>
-                <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Δ Calls</th>
-                <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Talk Time (Calls)</th>
-                <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Talk Time (Users)</th>
-                <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Δ Talk Time</th>
-              </tr>
-            </thead>
-            <tbody id="diffBody" class="divide-y divide-gray-100"></tbody>
-          </table>
-        </div>
-        <p id="diffEmpty" class="text-sm text-gray-500 mt-3 hidden">
-          No meaningful differences detected (within ±5% or ≤1 call).
-        </p>
-      </div>
-    </section>
+<body>
+<div class="container">
+  <h1>Agent Call Activity Dashboard</h1>
+  
+  <div class="upload-box">
+    <h3>Upload RingCentral Reports (.xlsx)</h3>
+    <p>Select both <strong>Calls</strong> and <strong>Users</strong> files.</p>
+    <input type="file" id="fileInput" multiple accept=".xlsx">
+    <p id="fileStatus"></p>
   </div>
 
-  <script>
-    // ------------------------------
-    // CONFIG
-    // ------------------------------
-    const VALID_RESULTS_CONNECTED = ["Connected", "Answered"];
-    const VALID_RESULTS_TRANSFERRED = ["Transferred", "Transferred / To Voicemail"];
+  <div id="timelineCard" class="card hidden">
+    <h2>Agent Call Timeline</h2>
+    <canvas id="timelineChart"></canvas>
+  </div>
 
-    const AGENT_LIST = [
-      "ALEJANDRO SATUNINO CAMPOS-PEREZ",
-      "AUSTIN MITCHELL",
-      "Brady Olson",
-      "Brandon Ridder",
-      "BRANDON RUSSOM",
-      "BRENDAN BOH",
-      "Cullen Manley",
-      "David Ryan",
-      "DOMINIQUE GONZALES",
-      "Duncan Cannon",
-      "Hayden Holcomb",
-      "Joel Jubber",
-      "John Udick",
-      "KIMBERLY RAMIREZ",
-      "MARCOS HERNANDEZ",
-      "MOUNIR ROSENDO",
-      "Natasha Fowler",
-      "Nathan Hill",
-      "Olivia Kasten",
-      "Tammy Lummus",
-      "Wanda Scott"
-    ];
-    const AGENT_MAP = new Map(AGENT_LIST.map(n => [n.toUpperCase(), n]));
-    const DIRECT_ALIAS_MAP = { "NATE": "Nathan Hill" };
+  <div id="productivityCard" class="card hidden">
+    <h2>Daily Productivity Metrics (8-Hour Net)</h2>
+    <div id="productivityTable"></div>
+  </div>
 
-    const NET_WORKDAY_SECONDS = 8 * 3600;
-    const IDLE_TIME_HIGHLIGHT_SECONDS = 4 * 3600;
+  <div id="discrepancyCard" class="card hidden">
+    <h2>Discrepancies</h2>
+    <button class="toggle-btn" onclick="toggleDiscrepancies()">Toggle Discrepancies</button>
+    <div id="discrepancyTable" class="hidden"></div>
+  </div>
+</div>
 
-    // ------------------------------
-    // STATE
-    // ------------------------------
-    let callsRows = null; // raw rows from Calls sheet
-    let usersRows = null; // raw rows from Users sheet
-    let callsMetrics = null; // per agent from Calls file
-    let usersMetrics = null; // per agent from Users file
-    let dateStrings = new Set(); // for header summary
+<script>
+let callsData = null, usersData = null;
 
-    // ------------------------------
-    // HELPERS
-    // ------------------------------
-    function extractAgentName(fullName) {
-      if (!fullName || typeof fullName !== 'string') return null;
+document.getElementById("fileInput").addEventListener("change", async (e) => {
+  const files = e.target.files;
+  if (files.length < 2) {
+    document.getElementById("fileStatus").innerText = "Please select BOTH Calls and Users reports.";
+    return;
+  }
 
-      let cleaned = fullName;
-      if (cleaned.includes(' - ')) cleaned = cleaned.split(' - ')[0];
-      if (cleaned.includes('(')) cleaned = cleaned.split('(')[0];
-      cleaned = cleaned.trim();
-      if (!cleaned) return null;
+  const fileList = Array.from(files);
+  let callsFile = fileList.find(f => f.name.toLowerCase().includes("calls"));
+  let usersFile = fileList.find(f => f.name.toLowerCase().includes("users"));
+  
+  if (!callsFile || !usersFile) {
+    document.getElementById("fileStatus").innerText = "Files not recognized. Please include 'Calls' and 'Users' in filenames.";
+    return;
+  }
 
-      const up = cleaned.toUpperCase();
+  document.getElementById("fileStatus").innerText = "Processing reports...";
+  
+  callsData = await readXLSX(callsFile);
+  usersData = await readXLSX(usersFile);
 
-      // robust direct/contains matching
-      for (const [upperTarget, originalName] of AGENT_MAP.entries()) {
-        if (up === upperTarget || up.startsWith(upperTarget) || upperTarget.includes(up) || up.includes(upperTarget)) {
-          return originalName;
-        }
-      }
+  document.getElementById("fileStatus").innerText = "Files loaded successfully.";
+  buildDashboard();
+});
 
-      // "<FirstName> Direct ..."
-      const directIdx = up.indexOf(' DIRECT');
-      if (directIdx > 0) {
-        const before = up.slice(0, directIdx).trim();
-        const maybeFirst = before.split(/\s+/).pop() || "";
-        if (DIRECT_ALIAS_MAP[maybeFirst]) return DIRECT_ALIAS_MAP[maybeFirst];
+async function readXLSX(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const workbook = XLSX.read(e.target.result, {type: "binary"});
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const json = XLSX.utils.sheet_to_json(sheet, {defval: ""});
+      resolve(json);
+    };
+    reader.onerror = reject;
+    reader.readAsBinaryString(file);
+  });
+}
 
-        for (const [upperTarget, originalName] of AGENT_MAP.entries()) {
-          const first = upperTarget.split(' ')[0];
-          if (first === maybeFirst) return originalName;
-        }
-      }
-
-      // Last-name fallback
-      for (const [upperTarget, originalName] of AGENT_MAP.entries()) {
-        const last = upperTarget.split(' ').slice(-1)[0];
-        if (last && up.includes(last)) return originalName;
-      }
-
-      return null;
-    }
-
-    function excelDurationToSeconds(val) {
-      if (val == null) return 0;
-
-      // Date object (HH:MM:SS time)
-      if (val instanceof Date) {
-        return val.getHours()*3600 + val.getMinutes()*60 + val.getSeconds();
-      }
-      // number => Excel day fraction or seconds
-      if (typeof val === 'number') {
-        if (val > 0 && val < 1) return Math.round(val * 24 * 3600);
-        return Math.round(val); // assume already seconds
-      }
-      // string "HH:MM:SS" or "MM:SS"
-      if (typeof val === 'string') {
-        const parts = val.split(':').map(x => parseInt(x,10));
-        if (parts.length === 3 && parts.every(v=>!Number.isNaN(v))) {
-          return parts[0]*3600 + parts[1]*60 + parts[2];
-        }
-        if (parts.length === 2 && parts.every(v=>!Number.isNaN(v))) {
-          return parts[0]*60 + parts[1];
-        }
-      }
-      return 0;
-    }
-
-    function formatHMS(sec) {
-      sec = Math.round(sec || 0);
-      const h = Math.floor(sec/3600);
-      const m = Math.floor((sec%3600)/60);
-      const s = sec%60;
-      return `${h}h ${m}m ${s}s`;
-    }
-
-    function parseMaybeDate(val) {
-      if (val instanceof Date) return val;
-      const d = new Date(val);
-      return isNaN(d.getTime()) ? null : d;
-    }
-
-    // Users sheet column resolver (flexible names)
-    function findUsersColumns(rowKeys) {
-      const keys = rowKeys.map(k => String(k).toLowerCase());
-      const finder = (cands) => {
-        for (const label of cands) {
-          const idx = keys.findIndex(k => k.includes(label));
-          if (idx >= 0) return rowKeys[idx];
-        }
-        return null;
-      };
-      return {
-        agent:   finder(['agent','user','name']),
-        calls:   finder(['total calls','calls']),
-        inTime:  finder(['inbound handle time','inbound talk time','inbound time']),
-        outTime: finder(['outbound handle time','outbound talk time','outbound time']),
-        totTime: finder(['total productive time','total talk time','productive time','handle time total'])
-      };
-    }
-
-    // ------------------------------
-    // PARSE CALLS FILE → metrics + heatmap matrix
-    // ------------------------------
-    function buildCallsMetrics(rows) {
-      // per-agent counters
-      const perAgent = {};
-      // heatmap matrix: agents (rows) × hours (columns)
-      const agentsSet = new Set();
-      const hourSet = new Set(); // hour integers present, but we’ll normalize 0..23 and mostly show active hours
-
-      rows.forEach(r => {
-        const from = r["From Name"];
-        const to = r["To Name"];
-        const result = r["Result"];
-        const direction = r["Call Direction"];
-        const startRaw = r["Call Start Time"];
-        const lengthRaw = r["Call Length"];
-
-        let agent = extractAgentName(from) || extractAgentName(to);
-        if (!agent) return;
-
-        const callLen = excelDurationToSeconds(lengthRaw);
-        if (!callLen) return;
-
-        let valid = false;
-        if (VALID_RESULTS_CONNECTED.includes(result)) valid = true;
-        else if (VALID_RESULTS_TRANSFERRED.includes(result)) valid = true;
-        else if (direction === 'Outbound' && callLen >= 5) valid = true;
-        if (!valid) return;
-
-        const start = parseMaybeDate(startRaw);
-        if (!start) return;
-
-        agentsSet.add(agent);
-        const h = start.getHours(); hourSet.add(h);
-
-        const dstr = start.toLocaleDateString();
-        dateStrings.add(dstr);
-
-        if (!perAgent[agent]) perAgent[agent] = { calls:0, talkSec:0, inboundSec:0, outboundSec:0 };
-        perAgent[agent].calls += 1;
-        perAgent[agent].talkSec += callLen;
-        if (direction === 'Inbound' || VALID_RESULTS_TRANSFERRED.includes(result)) perAgent[agent].inboundSec += callLen;
-        else perAgent[agent].outboundSec += callLen;
-      });
-
-      // order agents alphabetically by your master list, but only those present
-      const agents = AGENT_LIST.filter(a => agentsSet.has(a));
-      // define hours 0..23, but we’ll show all; the activity will cluster in business hours
-      const hours = Array.from({length:24}, (_,i)=>i);
-
-      // build z matrix count of calls per agent-hour
-      const z = agents.map(() => Array(24).fill(0));
-      rows.forEach(r => {
-        const from = r["From Name"];
-        const to = r["To Name"];
-        const result = r["Result"];
-        const direction = r["Call Direction"];
-        const startRaw = r["Call Start Time"];
-        const lengthRaw = r["Call Length"];
-
-        let agent = extractAgentName(from) || extractAgentName(to);
-        if (!agent) return;
-        if (!agents.includes(agent)) return;
-
-        const callLen = excelDurationToSeconds(lengthRaw);
-        if (!callLen) return;
-
-        let valid = false;
-        if (VALID_RESULTS_CONNECTED.includes(result)) valid = true;
-        else if (VALID_RESULTS_TRANSFERRED.includes(result)) valid = true;
-        else if (direction === 'Outbound' && callLen >= 5) valid = true;
-        if (!valid) return;
-
-        const start = parseMaybeDate(startRaw);
-        if (!start) return;
-        const hour = start.getHours();
-
-        const ai = agents.indexOf(agent);
-        z[ai][hour] += 1; // call count per hour
-      });
-
-      return { perAgent, heatmap: { agents, hours, z } };
-    }
-
-    // ------------------------------
-    // PARSE USERS FILE → metrics table (truth for summary)
-    // ------------------------------
-    function buildUsersMetrics(rows) {
-      if (!rows || rows.length === 0) return {};
-      const colMap = findUsersColumns(Object.keys(rows[0]));
-
-      const perAgent = {};
-      rows.forEach(r => {
-        const agent = extractAgentName(r[colMap.agent]);
-        if (!agent) return;
-
-        const totalCalls = Number(r[colMap.calls]) || 0;
-        const inboundSec = excelDurationToSeconds(r[colMap.inTime]);
-        const outboundSec = excelDurationToSeconds(r[colMap.outTime]);
-        let totalTalk = excelDurationToSeconds(r[colMap.totTime]);
-        if (!totalTalk) totalTalk = inboundSec + outboundSec; // fallback
-
-        perAgent[agent] = {
-          calls: totalCalls,
-          inboundSec,
-          outboundSec,
-          talkSec: totalTalk
-        };
-      });
-      return perAgent;
-    }
-
-    // ------------------------------
-    // RENDER: Heatmap
-    // ------------------------------
-    function renderHeatmap(heat) {
-      if (!heat || heat.agents.length === 0) {
-        document.getElementById('heatmapCard').classList.add('hidden');
-        return;
-      }
-      const x = heat.hours.map(h => `${h.toString().padStart(2,'0')}:00`);
-      const y = heat.agents;
-      const z = heat.z;
-
-      const data = [{
-        x, y, z,
-        type: 'heatmap',
-        colorscale: 'YlGnBu',
-        hovertemplate: 'Agent: %{y}<br>Hour: %{x}<br>Calls: %{z}<extra></extra>'
-      }];
-
-      const layout = {
-        margin: { l: 140, r: 20, t: 10, b: 40 },
-        xaxis: { title: 'Hour of Day' },
-        yaxis: { title: 'Agent' }
-      };
-
-      Plotly.newPlot('heatmap', data, layout, {displayModeBar:false, responsive:true});
-      document.getElementById('heatmapCard').classList.remove('hidden');
-    }
-
-    // ------------------------------
-    // RENDER: Summary (from Users metrics)
-    // ------------------------------
-    function renderSummary(users) {
-      const body = document.getElementById('summaryBody');
-      body.innerHTML = '';
-
-      const agents = Object.keys(users).sort((a,b)=>a.localeCompare(b));
-      if (agents.length === 0) {
-        document.getElementById('summaryCard').classList.add('hidden');
-        return;
-      }
-
-      agents.forEach(a => {
-        const m = users[a];
-        const totalTalk = m.talkSec || (m.inboundSec + m.outboundSec);
-        const timeOff = Math.max(0, NET_WORKDAY_SECONDS - totalTalk);
-        const offClass = timeOff > IDLE_TIME_HIGHLIGHT_SECONDS ? 'text-red-700 font-semibold' : 'text-gray-700';
-
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td class="px-4 py-2 text-sm font-medium">${a}</td>
-          <td class="px-4 py-2 text-sm">${m.calls}</td>
-          <td class="px-4 py-2 text-sm text-emerald-600">${formatHMS(m.inboundSec)}</td>
-          <td class="px-4 py-2 text-sm text-indigo-600">${formatHMS(m.outboundSec)}</td>
-          <td class="px-4 py-2 text-sm">${formatHMS(totalTalk)}</td>
-          <td class="px-4 py-2 text-sm ${offClass}">${formatHMS(timeOff)}</td>
-        `;
-        body.appendChild(tr);
-      });
-
-      document.getElementById('summaryCard').classList.remove('hidden');
-    }
-
-    // ------------------------------
-    // RENDER: Differences (only rows with diffs)
-    // ------------------------------
-    function renderDiff(calls, users) {
-      const diffBody = document.getElementById('diffBody');
-      const diffEmpty = document.getElementById('diffEmpty');
-      diffBody.innerHTML = '';
-
-      const allAgents = new Set([...Object.keys(calls), ...Object.keys(users)]);
-      let shown = 0;
-
-      allAgents.forEach(a => {
-        const cm = calls[a] || { calls:0, talkSec:0 };
-        const um = users[a] || { calls:0, talkSec:0 };
-
-        const callDelta = cm.calls - um.calls;
-        const timeDelta = (cm.talkSec||0) - (um.talkSec||0);
-
-        const pctCalls = um.calls ? Math.abs(callDelta)/um.calls : (cm.calls ? 1 : 0);
-        const pctTime  = (um.talkSec ? Math.abs(timeDelta)/um.talkSec : (cm.talkSec ? 1 : 0));
-
-        const callsOff = Math.abs(callDelta) > 1 || pctCalls >= 0.05;
-        const timeOff  = Math.abs(timeDelta) > 60 || pctTime >= 0.05;
-
-        if (callsOff || timeOff) {
-          shown++;
-          const tr = document.createElement('tr');
-          tr.innerHTML = `
-            <td class="px-4 py-2 text-sm font-medium">${a}</td>
-            <td class="px-4 py-2 text-sm">${cm.calls}</td>
-            <td class="px-4 py-2 text-sm">${um.calls}</td>
-            <td class="px-4 py-2 text-sm ${callsOff ? 'text-red-700 font-semibold' : ''}">${callDelta > 0 ? '+' : ''}${callDelta}</td>
-            <td class="px-4 py-2 text-sm">${formatHMS(cm.talkSec)}</td>
-            <td class="px-4 py-2 text-sm">${formatHMS(um.talkSec)}</td>
-            <td class="px-4 py-2 text-sm ${timeOff ? 'text-red-700 font-semibold' : ''}">
-              ${timeDelta>0?'+':''}${formatHMS(Math.abs(timeDelta)).replace(/^/, timeDelta>0?'+':'-').replace('+-','-')}
-            </td>
-          `;
-          diffBody.appendChild(tr);
-        }
-      });
-
-      if (shown === 0) {
-        diffEmpty.classList.remove('hidden');
-      } else {
-        diffEmpty.classList.add('hidden');
-      }
-      document.getElementById('diffCard').classList.remove('hidden');
-    }
-
-    // ------------------------------
-    // BUILD DASHBOARD
-    // ------------------------------
-   function buildDashboard(callsData, usersData) {
+function buildDashboard() {
   try {
-    // Clear any previous render
-    document.getElementById("timelineContainer").innerHTML = "";
-    document.getElementById("productivityContainer").innerHTML = "";
-    document.getElementById("discrepancyContainer").innerHTML = "";
-
-    // ✅ Timeline (Calls)
-    if (callsData && callsData.timeline) {
-      renderTimeline(callsData.timeline);
-    }
-
-    // ✅ Productivity Metrics (Users)
-    if (usersData && usersData.metrics) {
-      renderProductivity(usersData.metrics);
-    }
-
-    // ✅ Discrepancy Toggle (only differences)
-    if (callsData && usersData) {
-      renderDiscrepancy(callsData, usersData);
-    }
-
+    renderTimeline(callsData);
+    renderProductivity(usersData);
+    renderDiscrepancies(callsData, usersData);
   } catch (err) {
     console.error("Dashboard build failed:", err);
+    document.getElementById("fileStatus").innerText = "Error rendering dashboard.";
   }
 }
 
+function renderTimeline(data) {
+  const ctx = document.getElementById("timelineChart").getContext("2d");
+  document.getElementById("timelineCard").classList.remove("hidden");
 
-    // ------------------------------
-    // FILE LOADING
-    // ------------------------------
-    function handleWorkbook(file, kind) {
-      const reader = new FileReader();
-      reader.onload = e => {
-        const data = new Uint8Array(e.target.result);
-        const wb = XLSX.read(data, { type: 'array' });
+  const labels = [...new Set(data.map(d => d["Name"]))];
+  const callCounts = labels.map(name => data.filter(d => d["Name"] === name).length);
 
-        if (kind === 'calls') {
-          const sheet = wb.Sheets['Calls'] || wb.Sheets[wb.SheetNames[0]];
-          const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-          callsRows = rows;
-          document.getElementById('callsStatus').textContent = `Loaded: ${file.name} (${rows.length} rows)`;
-        } else {
-          const sheet = wb.Sheets['Users'] || wb.Sheets[wb.SheetNames[0]];
-          const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-          usersRows = rows;
-          document.getElementById('usersStatus').textContent = `Loaded: ${file.name} (${rows.length} rows)`;
-        }
-
-        // auto-build if both present
-        if (callsRows && usersRows) buildDashboard();
-      };
-      reader.readAsArrayBuffer(file);
+  new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: labels,
+      datasets: [{
+        label: "Total Calls",
+        data: callCounts,
+        backgroundColor: "rgba(46,125,50,0.7)"
+      }]
+    },
+    options: {
+      indexAxis: "y",
+      scales: { x: { beginAtZero: true } },
+      plugins: { legend: { display: false } }
     }
+  });
+}
 
-    function wireDrop(zoneId, inputId, btnId, kind) {
-      const zone = document.getElementById(zoneId);
-      const input = document.getElementById(inputId);
-      const btn = document.getElementById(btnId);
+function renderProductivity(data) {
+  document.getElementById("productivityCard").classList.remove("hidden");
+  const container = document.getElementById("productivityTable");
+  let html = "<table><tr><th>Agent Name</th><th>Total Calls</th><th>Total Handle Time</th><th>Avg Handle Time</th></tr>";
+  
+  data.forEach(row => {
+    html += `<tr>
+      <td>${row["Name"] || ""}</td>
+      <td>${row["Total Calls"] || 0}</td>
+      <td>${row["Total Handle Time"] || ""}</td>
+      <td>${row["Avg. Handle Time"] || ""}</td>
+    </tr>`;
+  });
+  html += "</table>";
+  container.innerHTML = html;
+}
 
-      btn.addEventListener('click', () => input.click());
-      input.addEventListener('change', e => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-        if (!/\.(xlsx|xls)$/i.test(file.name)) return alert('Please upload an XLSX/XLS file.');
-        handleWorkbook(file, kind);
-      });
+function renderDiscrepancies(calls, users) {
+  document.getElementById("discrepancyCard").classList.remove("hidden");
+  const container = document.getElementById("discrepancyTable");
+  
+  const callNames = new Set(calls.map(r => r["Name"]));
+  const userNames = new Set(users.map(r => r["Name"]));
+  
+  const missingInUsers = [...callNames].filter(n => !userNames.has(n));
+  const missingInCalls = [...userNames].filter(n => !callNames.has(n));
 
-      ['dragenter','dragover','dragleave','drop'].forEach(ev => {
-        zone.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); }, false);
-      });
-      zone.addEventListener('drop', e => {
-        const file = e.dataTransfer.files?.[0];
-        if (!file) return;
-        if (!/\.(xlsx|xls)$/i.test(file.name)) return alert('Please upload an XLSX/XLS file.');
-        handleWorkbook(file, kind);
-      });
-      zone.addEventListener('click', () => input.click());
-    }
+  let html = "<h4>Agents with Mismatched Records</h4><table><tr><th>Missing In</th><th>Agent</th></tr>";
+  missingInUsers.forEach(name => html += `<tr><td>Users</td><td>${name}</td></tr>`);
+  missingInCalls.forEach(name => html += `<tr><td>Calls</td><td>${name}</td></tr>`);
+  html += "</table>";
 
-    // ------------------------------
-    // COLLAPSE TOGGLE
-    // ------------------------------
-    function wireCollapse() {
-      const toggle = document.getElementById('diffToggle');
-      const panel = document.getElementById('diffPanel');
-      const container = document.getElementById('diffCard');
-      toggle.addEventListener('click', () => {
-        const open = !panel.classList.contains('hidden');
-        if (open) panel.classList.add('hidden');
-        else panel.classList.remove('hidden');
-        container.setAttribute('aria-expanded', (!open).toString());
-      });
-    }
+  container.innerHTML = html;
+}
 
-    // ------------------------------
-    // INIT
-    // ------------------------------
-    (function init(){
-      wireDrop('drop-calls', 'fileCalls', 'btnCalls', 'calls');
-      wireDrop('drop-users', 'fileUsers', 'btnUsers', 'users');
-      wireCollapse();
-    })();
-  </script>
+function toggleDiscrepancies() {
+  const el = document.getElementById("discrepancyTable");
+  el.classList.toggle("hidden");
+}
+</script>
 </body>
 </html>
