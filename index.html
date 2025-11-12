@@ -1,10 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8"/>
+  <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Agent Call Activity Timeline</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <!-- XLSX reader -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
@@ -15,65 +16,91 @@
     .call-bar { position: absolute; height: 25px; top: 5px; border-radius: 4px; transition: transform 0.1s; cursor: pointer; }
     .downtime-bar { position: absolute; height: 3px; top: 16px; background-color: #ef4444; border-radius: 1px; }
     .call-bar:hover { z-index: 10; transform: scaleY(1.2); }
-    .tooltip { position: absolute; z-index: 20; background-color: #1f2937; color: white; padding: 8px 12px;
-      border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,.2); pointer-events: none; opacity: 0;
-      transition: opacity .2s, transform .2s; transform: translate(-50%, -10px); min-width: 200px; }
+    .tooltip {
+      position: absolute; z-index: 20; background-color: #1f2937; color: white;
+      padding: 8px 12px; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,.2);
+      pointer-events: none; opacity: 0; transition: opacity .2s, transform .2s;
+      transform: translate(-50%, -10px); min-width: 200px;
+    }
     .show-tooltip { opacity: 1; transform: translate(-50%, -40px); }
-    #agent-list-panel { max-height: 150px; overflow-y: auto; padding: 8px; border: 1px solid #e2e8f0;
-      border-radius: 6px; background-color: #f8fafc; width: 220px; }
-    .agent-checkbox-item { display: flex; align-items: center; padding: 2px 0; font-size: .9rem; cursor: pointer; }
+    #agent-list-panel { max-height: 150px; overflow-y: auto; padding: 8px; border: 1px solid #e2e8f0; border-radius: 6px; background-color: #f8fafc; width: 220px; }
+    .agent-checkbox-item { display: flex; align-items: center; padding: 2px 0; font-size: 0.9rem; cursor: pointer; }
     .agent-checkbox-item:hover { background-color: #eff6ff; border-radius: 4px; }
     .agent-label-row { height: 35px; line-height: 35px; border-bottom: 1px solid #e5e7eb; }
     #agent-labels-header { height: 36px; }
-    details summary { cursor: pointer; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .metric-sub { font-size:.75rem; color:#6b7280 }
   </style>
 </head>
 <body class="p-8">
+
 <div id="app" class="max-w-7xl mx-auto">
   <header class="mb-8 p-4 bg-white rounded-xl shadow-lg border-b-4 border-emerald-500">
     <h1 class="text-3xl font-bold text-gray-800">Agent Call Activity Timeline</h1>
-    <p id="date-range-summary" class="text-gray-500 mt-1">
-      Load a RingCentral <span class="font-semibold">XLSX</span> Calls file (Multi-Day Agent Stats → <em>Calls</em> sheet).
-    </p>
+    <p id="date-range-summary" class="text-gray-500 mt-1">Load a RingCentral XLSX Calls file to begin analysis.</p>
   </header>
 
   <div class="flex justify-between items-start mb-6 p-4 bg-white rounded-xl shadow">
     <div class="flex items-center space-x-6">
       <div class="flex flex-col">
-        <label class="text-sm font-medium text-gray-700">Zoom Level</label>
+        <label class="text-sm font-medium text-gray-700">Zoom Level:</label>
         <input type="range" id="zoom-slider" min="100" max="400" value="100"
                class="w-48 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer range-sm">
-      </div>
-      <div class="flex flex-col">
-        <label class="text-sm font-medium text-gray-700">Upload XLSX</label>
-        <div id="drop-area"
-             class="border-2 border-dashed border-gray-300 rounded-lg p-3 text-center bg-white hover:border-emerald-500 transition cursor-pointer">
-          <input type="file" id="fileInput" accept=".xlsx,.xls" class="hidden">
-          <span class="text-sm text-gray-700">Drop file here or <span class="underline text-emerald-700">click to choose</span></span>
-        </div>
-        <p id="drop-help" class="text-xs text-gray-500 mt-1 mono">Waiting for file…</p>
       </div>
     </div>
 
     <div class="flex flex-col items-end">
       <div class="flex items-center mb-1">
-        <label class="text-sm font-medium text-gray-700 mr-2">Filter Agents</label>
-        <span id="filter-feedback" class="text-xs font-semibold px-2 py-1 rounded-full bg-emerald-100 text-emerald-700">0 Agents Selected</span>
+        <label class="text-sm font-medium text-gray-700 mr-2">Filter Agents:</label>
+        <span id="filter-feedback"
+              class="text-xs font-semibold px-2 py-1 rounded-full bg-emerald-100 text-emerald-700">0 Agents Selected</span>
       </div>
-      <div id="agent-list-panel"><p class="text-gray-500 text-center text-sm">Upload data to load agents.</p></div>
+      <div id="agent-list-panel">
+        <p class="text-gray-500 text-center text-sm">Upload data to load agents.</p>
+      </div>
       <div class="flex space-x-2 mt-2">
-        <button id="applyFilter" class="px-3 py-2 bg-emerald-500 text-white rounded-md hover:bg-emerald-600 transition font-medium text-sm">Apply Filter</button>
-        <button id="clearSelection" class="px-3 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition font-medium text-sm">Clear Selection</button>
+        <button id="applyFilter"
+                class="px-3 py-2 bg-emerald-500 text-white rounded-md hover:bg-emerald-600 transition font-medium text-sm">
+          Apply Filter
+        </button>
+        <button id="clearSelection"
+                class="px-3 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition font-medium text-sm">
+          Clear Selection
+        </button>
       </div>
     </div>
   </div>
 
+  <div id="drop-area"
+       class="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center bg-white hover:border-emerald-400 transition cursor-pointer mb-8">
+    <input type="file" id="fileInput" accept=".xlsx,.xls" class="hidden">
+    <p class="text-lg font-medium text-gray-700">**DROP RINGCENTRAL XLSX CALLS FILE HERE**</p>
+    <p class="text-sm text-gray-500 mt-1">Expects the <strong>Multi-Day Agent Stats – Calls</strong> XLSX export (uses the “Calls” sheet).</p>
+    <div id="loadFeedback" class="text-xs text-gray-500 mt-2"></div>
+  </div>
+
+  <!-- Top metrics to show both counting methods -->
+  <div id="top-metrics" class="grid grid-cols-2 gap-4 mb-6 hidden">
+    <div class="bg-white rounded-xl shadow p-4">
+      <div class="text-sm text-gray-600 font-medium">RC Total Calls (All legs)</div>
+      <div id="metric-rc-count" class="text-2xl font-bold text-gray-900">0</div>
+      <div class="metric-sub">Matches RingCentral “Total Calls” by counting every row an agent touched.</div>
+    </div>
+    <div class="bg-white rounded-xl shadow p-4">
+      <div class="text-sm text-gray-600 font-medium">Productive Time (All agents)</div>
+      <div id="metric-prod-time" class="text-2xl font-bold text-gray-900">0h 0m</div>
+      <div class="metric-sub">Sum of Connected / Answered / Transferred (+ Outbound attempts ≥5s for bars only).</div>
+    </div>
+  </div>
+
   <div id="visualization-area" class="flex bg-white rounded-xl shadow-lg overflow-hidden border">
-    <div id="agent-names-column" class="flex-shrink-0 w-56 border-r bg-gray-50">
-      <div id="agent-labels-header" class="px-3 text-xs font-semibold text-gray-600 uppercase border-b border-gray-300 flex items-center">Agent Name</div>
+    <div id="agent-names-column" class="flex-shrink-0 w-48 border-r bg-gray-50">
+      <div id="agent-labels-header"
+           class="px-3 text-xs font-semibold text-gray-600 uppercase border-b border-gray-300 flex items-center">
+        Agent Name
+      </div>
       <div id="agent-label-container"></div>
     </div>
+
     <div id="timeline-scroll-container" class="timeline-container relative">
       <div id="timeline-chart" class="timeline-chart"></div>
     </div>
@@ -81,14 +108,16 @@
 
   <div id="call-tooltip" class="tooltip"></div>
 
-  <div id="stats-summary-area" class="mt-8 p-6 bg-white rounded-xl shadow-lg border-t-4 border-emerald-500" style="display:none;">
+  <div id="stats-summary-area"
+       class="mt-8 p-6 bg-white rounded-xl shadow-lg border-t-4 border-emerald-500"
+       style="display: none;">
     <h2 class="text-2xl font-semibold text-gray-700 mb-4">Daily Productivity Metrics (8-Hour Net)</h2>
     <div class="overflow-x-auto">
       <table class="min-w-full divide-y divide-gray-200">
         <thead class="bg-gray-50">
         <tr>
           <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Agent Name</th>
-          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Calls</th>
+          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">RC Total Calls</th>
           <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Inbound Handle Time</th>
           <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Outbound Handle Time</th>
           <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Productive Time</th>
@@ -99,42 +128,49 @@
       </table>
     </div>
   </div>
-
-  <details class="mt-6">
-    <summary class="text-sm text-gray-700">Debug: unmatched rows / keys</summary>
-    <div class="mt-3 text-xs text-gray-600 mono" id="debug-box">None yet.</div>
-  </details>
 </div>
 
 <script>
-  // ===== Constants =====
-  const VALID_RESULTS_CONNECTED = ["Connected", "Answered", "Accepted", "Completed"];
+  // --- Constants ---
+  const VALID_RESULTS_CONNECTED = ["Connected", "Answered", "Call connected"]; // broadened
   const VALID_RESULTS_TRANSFERRED = ["Transferred", "Transferred / To Voicemail"];
 
+  // --- Agents ---
   const AGENT_LIST = [
-    "ALEJANDRO SATUNINO CAMPOS-PEREZ","AUSTIN MITCHELL","Brady Olson","Brandon Ridder","BRANDON RUSSOM",
-    "BRENDAN BOH","Cullen Manley","David Ryan","DOMINIQUE GONZALES","Duncan Cannon","Hayden Holcomb",
-    "Joel Jubber","John Udick","KIMBERLY RAMIREZ","MARCOS HERNANDEZ","MOUNIR ROSENDO","Natasha Fowler",
-    "Nathan Hill","Olivia Kasten","Tammy Lummus","Wanda Scott"
+    "ALEJANDRO SATUNINO CAMPOS-PEREZ","AUSTIN MITCHELL","Brady Olson","Brandon Ridder",
+    "BRANDON RUSSOM","BRENDAN BOH","Cullen Manley","David Ryan","DOMINIQUE GONZALES",
+    "Duncan Cannon","Hayden Holcomb","Joel Jubber","John Udick","KIMBERLY RAMIREZ",
+    "MARCOS HERNANDEZ","MOUNIR ROSENDO","Natasha Fowler","Nathan Hill","Olivia Kasten",
+    "Tammy Lummus","Wanda Scott"
   ];
   const AGENT_MAP = new Map(AGENT_LIST.map(n => [n.toUpperCase(), n]));
-  const DIRECT_ALIAS_MAP = { "NATE": "Nathan Hill" }; // nicknames → canonical
+  // extra aliases that commonly appear on “Direct” legs/nicknames
+  const DIRECT_ALIAS_MAP = {
+    "NATE": "Nathan Hill",
+    "NATHAN": "Nathan Hill",
+    "ALEX": "ALEJANDRO SATUNINO CAMPOS-PEREZ",
+  };
 
-  // Workday window
-  const START_OF_DAY_SECONDS = 8.5 * 3600;
-  const END_OF_DAY_SECONDS   = 17.5 * 3600;
+  // --- Workday window ---
+  const START_OF_DAY_SECONDS = 8.5 * 3600; // 8:30 AM
+  const END_OF_DAY_SECONDS   = 17.5 * 3600; // 5:30 PM
   const NET_WORKDAY_SECONDS  = 8 * 3600;
   const IDLE_TIME_HIGHLIGHT_SECONDS = 4 * 3600;
 
-  // ===== State =====
+  // --- State ---
   let callData = [];
-  let agentProductivity = new Map();
   let agentTrackMap = {};
-  let selectedAgents = [];
+  // agentStats: seeded for all agents
+  let agentProductivity = new Map();
+  // RC counting map (counts all legs)
+  let agentRcCounts = new Map();
+
   let totalTimeSeconds = END_OF_DAY_SECONDS - START_OF_DAY_SECONDS;
   let timeMin = START_OF_DAY_SECONDS;
 
-  // DOM
+  let selectedAgents = [];
+
+  // --- DOM ---
   const timelineChart = document.getElementById('timeline-chart');
   const agentLabelContainer = document.getElementById('agent-label-container');
   const timelineScrollContainer = document.getElementById('timeline-scroll-container');
@@ -143,469 +179,502 @@
   const filterFeedback = document.getElementById('filter-feedback');
   const dropArea = document.getElementById('drop-area');
   const fileInput = document.getElementById('fileInput');
-  const dropHelp = document.getElementById('drop-help');
-  const debugBox = document.getElementById('debug-box');
+  const loadFeedback = document.getElementById('loadFeedback');
+  const topMetrics = document.getElementById('top-metrics');
+  const metricRcCount = document.getElementById('metric-rc-count');
+  const metricProdTime = document.getElementById('metric-prod-time');
 
-  // ===== Utils =====
-  const stripDiacritics = (s) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  const cleanNameToken = (s) =>
-    stripDiacritics(String(s || ""))
-      .replace(/[,]/g," ")
-      .replace(/\s+DIRECT.*$/i,"")
-      .replace(/\s+-\s+.*$/,"")
-      .replace(/\(.*?\)/g,"")
-      .replace(/\s+/g," ")
-      .trim()
-      .toUpperCase();
-
-  function extractAgentName(fullName) {
-    if (!fullName || typeof fullName !== "string") return null;
-
-    // Support "LAST, FIRST" by rejoining as "FIRST LAST"
-    let raw = stripDiacritics(fullName);
-    if (/,/.test(raw)) {
-      const parts = raw.split(",").map(p=>p.trim());
-      if (parts.length === 2) raw = `${parts[1]} ${parts[0]}`;
-    }
-
-    let up = cleanNameToken(raw);
-    if (!up) return null;
-
-    // Direct alias like "NATE DIRECT"
-    const directIdx = up.indexOf(" DIRECT");
-    if (directIdx > 0) {
-      const maybeFirst = up.slice(0, directIdx).split(/\s+/).pop();
-      if (DIRECT_ALIAS_MAP[maybeFirst]) return DIRECT_ALIAS_MAP[maybeFirst];
-      for (const [upper, orig] of AGENT_MAP.entries()) {
-        const first = upper.split(" ")[0];
-        if (first === maybeFirst) return orig;
-      }
-    }
-
-    // Full/contains match
-    for (const [upper, orig] of AGENT_MAP.entries()) {
-      if (up === upper || up.startsWith(upper) || upper.startsWith(up) || up.includes(upper) || upper.includes(up)) {
-        return orig;
-      }
-    }
-
-    // Last-name fallback
-    const last = up.split(" ").slice(-1)[0];
-    for (const [upper, orig] of AGENT_MAP.entries()) {
-      const lastTarget = upper.split(" ").slice(-1)[0];
-      if (last && lastTarget === last) return orig;
-    }
-    return null;
-  }
-
-  function callLengthToSeconds(val) {
-    if (val == null || val === "") return 0;
+  // --- Utils ---
+  const callLengthToSeconds = (val) => {
+    if (val == null) return 0;
     if (val instanceof Date) return val.getHours()*3600 + val.getMinutes()*60 + val.getSeconds();
-    if (typeof val === "number") {
-      if (val > 0 && val < 1) return Math.round(val * 24 * 3600); // Excel fraction of a day
-      return Math.round(val); // already seconds
+    if (typeof val === 'number') {
+      if (val > 0 && val < 1) return Math.round(val * 24 * 3600); // Excel fraction of day
+      return Math.round(val);
     }
-    if (typeof val === "string") {
-      const t = val.trim();
-      if (!t) return 0;
-      const parts = t.split(":").map(p=>parseInt(p,10));
-      if (parts.length === 3 && parts.every(x=>!isNaN(x))) return parts[0]*3600 + parts[1]*60 + parts[2];
-      if (parts.length === 2 && parts.every(x=>!isNaN(x))) return parts[0]*60 + parts[1];
-      const asNum = Number(t);
-      if (!Number.isNaN(asNum)) return Math.round(asNum);
+    if (typeof val === 'string') {
+      const parts = val.split(':').map(p => parseInt(p,10));
+      if (parts.length === 3 && parts.every(n => !isNaN(n))) return parts[0]*3600 + parts[1]*60 + parts[2];
+      if (parts.length === 2 && parts.every(n => !isNaN(n))) return parts[0]*60 + parts[1];
     }
     return 0;
-  }
+  };
+
+  const extractAgentName = (fullName) => {
+    if (!fullName || typeof fullName !== 'string') return null;
+    let cleaned = fullName;
+    if (cleaned.includes(' - ')) cleaned = cleaned.split(' - ')[0];
+    if (cleaned.includes('(')) cleaned = cleaned.split('(')[0];
+    cleaned = cleaned.trim();
+    if (!cleaned) return null;
+
+    const up = cleaned.toUpperCase();
+
+    // exact / contains
+    for (const [upperTarget, originalName] of AGENT_MAP.entries()) {
+      if (up === upperTarget || up.startsWith(upperTarget) || upperTarget.includes(up) || up.includes(upperTarget)) {
+        return originalName;
+      }
+    }
+
+    // "<First> Direct ..." nicknames
+    const directIdx = up.indexOf(' DIRECT');
+    if (directIdx > 0) {
+      const maybeFirst = up.slice(0, directIdx).trim().split(/\s+/).pop();
+      if (DIRECT_ALIAS_MAP[maybeFirst]) return DIRECT_ALIAS_MAP[maybeFirst];
+      for (const [upperTarget, originalName] of AGENT_MAP.entries()) {
+        const first = upperTarget.split(' ')[0];
+        if (first === maybeFirst) return originalName;
+      }
+    }
+
+    // last name only
+    for (const [upperTarget, originalName] of AGENT_MAP.entries()) {
+      const last = upperTarget.split(' ').slice(-1)[0];
+      if (last && up.includes(last)) return originalName;
+    }
+
+    return null;
+  };
 
   const timeToSeconds = (date) => date.getHours()*3600 + date.getMinutes()*60 + date.getSeconds();
-  const formatTime = (seconds) => new Date(0,0,0,0,0,seconds).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:true});
-  const fmtHMS = (d) => {
-    d = Math.round(+d || 0);
-    const h = Math.floor(d/3600), m = Math.floor((d%3600)/60), s = d%60;
-    return `${h ? h+'h ' : ''}${m ? m+'m ' : ''}${(!h && !m) || s ? s+'s' : ''}`.trim();
-  };
-  const fmtMS = (s) => `${Math.floor(s/60)}m ${s%60}s`;
 
-  // ===== Parse & Aggregate =====
-  function parseRows(rows) {
-    callData = [];
+  const formatTime = (seconds) => {
+    const date = new Date(0, 0, 0, 0, 0, seconds);
+    return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+  };
+
+  const formatDurationHms = (d) => {
+    d = Math.round(Number(d));
+    const h = Math.floor(d / 3600);
+    const m = Math.floor((d % 3600) / 60);
+    const s = d % 60;
+    const hDisplay = h > 0 ? `${h}h ` : "";
+    const mDisplay = m > 0 ? `${m}m ` : "";
+    const sDisplay = s > 0 || (h === 0 && m === 0) ? `${s}s` : "";
+    return (hDisplay + mDisplay + sDisplay).trim() || '0s';
+  };
+
+  const formatDurationMs = (seconds) => `${Math.floor(seconds/60)}m ${seconds%60}s`;
+
+  // seed maps so agents with 0 appear
+  const seedAgents = () => {
     agentProductivity = new Map();
-    const seenKeys = new Set();
-    const debug = [];
+    agentRcCounts = new Map();
+    AGENT_LIST.forEach(name => {
+      agentProductivity.set(name, {
+        inboundTime: 0,
+        outboundTime: 0,
+        totalCalls: 0,     // RC-style count (all legs)
+        calls: []          // productive / visualized bars
+      });
+      agentRcCounts.set(name, { inbound:0, outbound:0, total:0 }); // explicit dir counts if you need later
+    });
+  };
+
+  // --- Core parse of XLSX rows ---
+  const parseRows = (rows) => {
+    seedAgents();
+    callData = [];
 
     let minTimeRaw = Infinity;
+    let totalProdSecondsAll = 0;
 
-    rows.forEach((row, idx) => {
+    rows.forEach((row) => {
       const fromName = row["From Name"];
-      const toName   = row["To Name"];
-      const result   = row["Result"];
+      const toName = row["To Name"];
+      const result = row["Result"];
       const direction = row["Call Direction"];
-      const lengthVal = row["Call Length"];
-      const startRaw  = row["Call Start Time"];
+      const startTimeRaw = row["Call Start Time"];
+      const callLengthVal = row["Call Length"];
 
-      // Robust agent detection (from → to)
-      let agent = extractAgentName(fromName) || extractAgentName(toName);
-      if (!agent) { debug.push(`Row ${idx+2}: unmatched agent | From="${fromName}" | To="${toName}"`); return; }
+      let agentName = extractAgentName(fromName) || extractAgentName(toName);
+      if (!agentName) return;
 
-      // Build a dedupe key per agent per session
-      const sess = row["Telephony Session ID"] || row["Session ID"] || null;
-      let key;
-      if (sess) {
-        key = `${agent}__${String(sess)}`;
-      } else {
-        // Fallback: time+direction+numbers (best-effort)
-        const fromNum = String(row["From Number"] || "").trim();
-        const toNum   = String(row["To Number"] || "").trim();
-        const sr = startRaw instanceof Date ? startRaw.toISOString() : String(startRaw);
-        key = `${agent}__${sr}__${direction || ''}__${fromNum}->${toNum}`;
-      }
-      if (seenKeys.has(key)) return;
-      seenKeys.add(key);
+      // --- RC-style counting: count EVERY row the agent touches ---
+      const rc = agentRcCounts.get(agentName);
+      if (direction === "Inbound") rc.inbound += 1;
+      else if (direction === "Outbound") rc.outbound += 1;
+      rc.total += 1;
 
-      // Duration
-      const callLength = callLengthToSeconds(lengthVal);
+      const stats = agentProductivity.get(agentName);
+      stats.totalCalls = rc.total; // keep table’s “RC Total Calls” in sync
 
-      // Decide count vs time
-      const countsTowardTotal =
-        VALID_RESULTS_CONNECTED.includes(result) ||
-        VALID_RESULTS_TRANSFERRED.includes(result) ||
-        (direction === "Outbound") || (direction === "Inbound"); // count legs even if 0s, to match Users report
+      // --- Productive/visualized filter ---
+      const callLength = callLengthToSeconds(callLengthVal);
+      if (!callLength || callLength === 0) return; // zero-length contributes no time/bars
 
-      const contributesTime = callLength > 0;
-
-      if (!countsTowardTotal && !contributesTime) return;
-
-      // Start time
-      let startTime = startRaw instanceof Date ? startRaw : new Date(startRaw);
-      if (isNaN(startTime.getTime())) { debug.push(`Row ${idx+2}: bad start time "${startRaw}"`); return; }
-
-      const startSeconds = timeToSeconds(startTime);
-      const endSeconds   = startSeconds + callLength;
-      minTimeRaw = Math.min(minTimeRaw, startSeconds);
-
-      // Classify type (for color)
+      let isValidCall = false;
       let callType = 'Attempted';
+
       if (VALID_RESULTS_CONNECTED.includes(result)) {
+        isValidCall = true;
         callType = direction === 'Outbound' ? 'ConnectedOutbound' : 'ConnectedInbound';
       } else if (VALID_RESULTS_TRANSFERRED.includes(result)) {
+        isValidCall = true;
         callType = 'Transferred';
       } else if (direction === 'Outbound' && callLength >= 5) {
+        // keep these *only* for visualization and not for productive sums
+        isValidCall = true;
         callType = 'OutboundAttempt';
       }
 
+      if (!isValidCall) return;
+
+      // parse start time
+      let startTime;
+      if (startTimeRaw instanceof Date) startTime = startTimeRaw;
+      else startTime = new Date(startTimeRaw);
+      if (isNaN(startTime.getTime())) return;
+
+      const startSeconds = timeToSeconds(startTime);
+      const endSeconds = startSeconds + callLength;
+      minTimeRaw = Math.min(minTimeRaw, startSeconds);
+
       const call = {
-        agentName: agent, startTime, startSeconds, endSeconds, callLength,
-        direction, result, callType
+        agentName, startTime, startSeconds, endSeconds,
+        callLength, direction, result, callType
       };
       callData.push(call);
+      stats.calls.push(call);
 
-      if (!agentProductivity.has(agent)) {
-        agentProductivity.set(agent, { inboundTime:0, outboundTime:0, totalCalls:0, calls:[] });
+      // add productive time (exclude bare attempts)
+      if (callType === 'ConnectedInbound' || callType === 'Transferred') {
+        stats.inboundTime += callLength;
+        totalProdSecondsAll += callLength;
+      } else if (callType === 'ConnectedOutbound') {
+        stats.outboundTime += callLength;
+        totalProdSecondsAll += callLength;
       }
-      const p = agentProductivity.get(agent);
-
-      // Count call even if 0 time
-      p.totalCalls += 1;
-
-      // Time buckets
-      if (contributesTime) {
-        if (callType === 'ConnectedInbound' || callType === 'Transferred') p.inboundTime += callLength;
-        else p.outboundTime += callLength;
-      }
-      p.calls.push(call);
     });
 
-    debugBox.textContent = debug.length ? debug.slice(0,400).join("\n") + (debug.length>400 ? "\n…(truncated)" : "") : "No issues.";
-    callData.sort((a,b)=>a.startSeconds-b.startSeconds);
-    agentProductivity.forEach(p => p.calls.sort((a,b)=>a.startSeconds-b.startSeconds));
+    // sort calls globally and per agent
+    callData.sort((a,b) => a.startSeconds - b.startSeconds);
+    agentProductivity.forEach(s => s.calls.sort((a,b) => a.startSeconds - b.startSeconds));
 
-    const sortedAgents = Array.from(agentProductivity.keys()).sort();
+    // map agents to track indices (show everyone, even with 0)
+    const sortedAgentNames = [...AGENT_LIST].sort((a,b)=>a.localeCompare(b));
     agentTrackMap = {};
-    sortedAgents.forEach((name, i)=>agentTrackMap[name]=i);
-    selectedAgents = sortedAgents;
+    sortedAgentNames.forEach((name, idx) => { agentTrackMap[name] = idx; });
 
-    // Date summary + initial scroll
-    const dateSummaryEl = document.getElementById('date-range-summary');
-    if (callData.length) {
-      const dates = Array.from(new Set(callData.map(c=>c.startTime.toLocaleDateString()))).join(' & ');
-      dateSummaryEl.textContent = `Visualization spans activity on: ${dates}. Time axis is standardized to 8:30 AM – 5:30 PM.`;
-      setTimeout(()=>{
-        const width = timelineChart.offsetWidth;
-        const pxPerSec = width / totalTimeSeconds;
-        const first = Math.min(...callData.map(c=>c.startSeconds));
-        const scrollLeft = Math.max(0, (first - START_OF_DAY_SECONDS) * pxPerSec - 50);
-        timelineScrollContainer.scrollLeft = scrollLeft;
-      }, 50);
-    } else {
-      dateSummaryEl.textContent = "No valid call data found.";
-    }
+    selectedAgents = sortedAgentNames;
+    populateAgentFilter(sortedAgentNames);
 
-    populateAgentFilter(sortedAgents);
-    return sortedAgents;
-  }
+    // date summary + top metrics
+    const metricProdText = formatDurationHms(totalProdSecondsAll);
+    metricProdTime.textContent = metricProdText;
 
-  // ===== Stats & Render =====
-  function calculateDailyStats() {
+    const totalRc = [...agentRcCounts.values()].reduce((acc, c) => acc + c.total, 0);
+    metricRcCount.textContent = totalRc.toLocaleString();
+    topMetrics.classList.remove('hidden');
+
+    const dates = callData.length
+      ? [...new Set(callData.map(c => c.startTime.toLocaleDateString()))].join(' & ')
+      : 'No calls';
+    document.getElementById('date-range-summary').textContent =
+      `Visualization spans activity on: ${dates}. Time axis is standardized to 8:30 AM - 5:30 PM.`;
+
+    return sortedAgentNames;
+  };
+
+  // --- Stats table ---
+  const calculateDailyStats = () => {
     const stats = [];
-    const names = Array.from(agentProductivity.keys()).filter(n=>selectedAgents.includes(n));
-    names.forEach(name => {
-      const p = agentProductivity.get(name);
-      const totalProductive = p.inboundTime + p.outboundTime;
-      const timeOff = Math.max(0, NET_WORKDAY_SECONDS - totalProductive);
+    const agentNames = AGENT_LIST.filter(name => selectedAgents.includes(name));
+
+    agentNames.forEach(agentName => {
+      const p = agentProductivity.get(agentName);
+      const totalProductiveTime = p.inboundTime + p.outboundTime;
+      const timeOffPhone = Math.max(0, NET_WORKDAY_SECONDS - totalProductiveTime);
+
       stats.push({
-        agentName: name,
-        totalCalls: p.totalCalls,
+        agentName,
+        totalCalls: p.totalCalls, // RC-style all legs
         inboundTime: p.inboundTime,
         outboundTime: p.outboundTime,
-        totalProductiveTime: totalProductive,
-        timeOffPhone: timeOff
+        totalProductiveTime,
+        timeOffPhone
       });
     });
-    return stats.sort((a,b)=>a.agentName.localeCompare(b.agentName));
-  }
 
-  function renderDailyStats() {
+    return stats.sort((a,b)=>a.agentName.localeCompare(b.agentName));
+  };
+
+  const renderDailyStats = () => {
     const stats = calculateDailyStats();
     const tbody = document.getElementById('stats-table-body');
-    const area = document.getElementById('stats-summary-area');
-    if (!stats.length) { area.style.display='none'; return; }
-    area.style.display='block';
-    tbody.innerHTML = '';
-    stats.forEach((s,i)=>{
-      const offClass = s.timeOffPhone > IDLE_TIME_HIGHLIGHT_SECONDS ? 'text-red-700 font-semibold' : 'text-gray-700';
-      const tr = document.createElement('tr');
-      tr.className = `hover:bg-gray-100 ${i%2 ? 'bg-gray-50':'bg-white'}`;
-      tr.innerHTML = `
-        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${s.agentName}</td>
-        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${s.totalCalls}</td>
-        <td class="px-6 py-4 whitespace-nowrap text-sm text-emerald-600">${fmtHMS(s.inboundTime)}</td>
-        <td class="px-6 py-4 whitespace-nowrap text-sm text-indigo-600">${fmtHMS(s.outboundTime)}</td>
-        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${fmtHMS(s.totalProductiveTime)}</td>
-        <td class="px-6 py-4 whitespace-nowrap text-sm ${offClass}">${fmtHMS(s.timeOffPhone)}</td>
-      `;
-      tbody.appendChild(tr);
-    });
-  }
+    const summaryArea = document.getElementById('stats-summary-area');
 
-  function populateAgentFilter(agentNames) {
-    const panel = document.getElementById('agent-list-panel');
-    panel.innerHTML = '';
-    agentNames.forEach(name=>{
-      const lbl = document.createElement('label');
-      lbl.className = 'agent-checkbox-item px-2';
-      lbl.htmlFor = `agent-${name.replace(/\s/g,'-')}`;
-      const cb = document.createElement('input');
-      cb.type='checkbox'; cb.id=`agent-${name.replace(/\s/g,'-')}`; cb.value=name; cb.checked=true;
-      cb.className='mr-2 rounded text-emerald-600 focus:ring-emerald-500';
-      lbl.appendChild(cb);
-      lbl.appendChild(document.createTextNode(name));
-      panel.appendChild(lbl);
+    if (stats.length === 0) { summaryArea.style.display = 'none'; return; }
+
+    tbody.innerHTML = '';
+    summaryArea.style.display = 'block';
+
+    stats.forEach((stat, i) => {
+      const row = document.createElement('tr');
+      row.className = `hover:bg-gray-100 ${i%2===1?'bg-gray-50':'bg-white'}`;
+      const offPhoneClass = stat.timeOffPhone > IDLE_TIME_HIGHLIGHT_SECONDS ? 'text-red-700 font-semibold' : 'text-gray-700';
+
+      row.innerHTML = `
+        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${stat.agentName}</td>
+        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${stat.totalCalls}</td>
+        <td class="px-6 py-4 whitespace-nowrap text-sm text-emerald-600">${formatDurationHms(stat.inboundTime)}</td>
+        <td class="px-6 py-4 whitespace-nowrap text-sm text-indigo-600">${formatDurationHms(stat.outboundTime)}</td>
+        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${formatDurationHms(stat.totalProductiveTime)}</td>
+        <td class="px-6 py-4 whitespace-nowrap text-sm ${offPhoneClass}">${formatDurationHms(stat.timeOffPhone)}</td>
+      `;
+      tbody.appendChild(row);
+    });
+  };
+
+  // --- Filter UI ---
+  const populateAgentFilter = (agentNames) => {
+    const container = document.getElementById('agent-list-panel');
+    container.innerHTML = '';
+    agentNames.forEach(agentName => {
+      const id = `timeline-agent-${agentName.replace(/\s/g,'-')}`;
+      const item = document.createElement('label');
+      item.className = 'agent-checkbox-item px-2';
+      item.htmlFor = id;
+
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox'; checkbox.id = id; checkbox.value = agentName;
+      checkbox.checked = true; checkbox.className = 'mr-2 rounded text-emerald-600 focus:ring-emerald-500';
+
+      item.appendChild(checkbox);
+      item.appendChild(document.createTextNode(agentName));
+      container.appendChild(item);
     });
     filterFeedback.textContent = `${agentNames.length} Agents Selected`;
-  }
+  };
 
-  function renderTimeline(zoomLevel) {
-    const width = 1500 * (zoomLevel/100);
+  // --- Timeline ---
+  const renderTimeline = (zoomLevel) => {
+    const width = 1500 * (zoomLevel / 100);
     timelineChart.style.width = `${width}px`;
+
     timelineChart.innerHTML = '';
     agentLabelContainer.innerHTML = '';
 
-    const tracks = Object.keys(agentTrackMap).filter(n=>selectedAgents.includes(n));
-    const visible = {};
-    tracks.forEach((n,i)=>visible[n]=i);
-    timelineChart.style.height = `${(tracks.length + 1) * 35}px`;
+    const tracksToShow = AGENT_LIST.filter(name => selectedAgents.includes(name));
+    const visibleAgentTrackMap = {};
+    tracksToShow.forEach((name, index) => visibleAgentTrackMap[name] = index);
+
+    timelineChart.style.height = `${(tracksToShow.length + 1) * 35}px`;
 
     // Time axis
     const timeAxis = document.createElement('div');
     timeAxis.className = 'absolute top-0 left-0 w-full h-8 flex border-b border-gray-300';
-    for (let s=START_OF_DAY_SECONDS; s<=END_OF_DAY_SECONDS; s+=1800) {
-      const pos = ((s - timeMin)/totalTimeSeconds) * 100;
-      if (pos > 100) break;
-      const m = document.createElement('div');
-      m.className = 'absolute h-full text-xs text-gray-500 pt-1 text-center font-medium';
-      m.style.left = `${pos}%`; m.style.transform='translateX(-50%)';
-      m.style.borderLeft='1px dashed #ccc'; m.style.width='1px';
-      m.textContent = formatTime(s);
-      timeAxis.appendChild(m);
+    for (let s = START_OF_DAY_SECONDS; s <= END_OF_DAY_SECONDS; s += 1800) {
+      const position = ((s - timeMin) / totalTimeSeconds) * 100;
+      if (position > 100) break;
+      const marker = document.createElement('div');
+      marker.className = 'absolute h-full text-xs text-gray-500 pt-1 text-center font-medium';
+      marker.style.left = `${position}%`;
+      marker.style.transform = 'translateX(-50%)';
+      marker.style.borderLeft = '1px dashed #ccc';
+      marker.style.width = '1px';
+      marker.textContent = formatTime(s);
+      timeAxis.appendChild(marker);
     }
     timelineChart.appendChild(timeAxis);
 
     // Labels & tracks
-    tracks.forEach((name, idx)=>{
-      const top = (idx+1)*35;
+    tracksToShow.forEach((agentName, index) => {
+      const trackTop = (index + 1) * 35;
+
       const label = document.createElement('div');
-      label.className='agent-label-row px-3 text-sm font-medium text-gray-800 truncate';
-      label.textContent=name;
+      label.className = 'agent-label-row px-3 text-sm font-medium text-gray-800 truncate';
+      label.textContent = agentName;
       agentLabelContainer.appendChild(label);
 
       const track = document.createElement('div');
-      track.className='agent-track w-full';
-      track.style.top=`${top}px`;
-      track.style.position='absolute';
+      track.className = 'agent-track w-full';
+      track.style.top = `${trackTop}px`;
+      track.style.position = 'absolute';
       timelineChart.appendChild(track);
     });
 
-    // Downtime + calls
-    tracks.forEach(name=>{
-      const idx = visible[name];
-      const top = (idx+1)*35;
-      const calls = agentProductivity.get(name)?.calls || [];
-      let lastEnd = START_OF_DAY_SECONDS;
+    // Bars
+    tracksToShow.forEach(agentName => {
+      const trackIndex = visibleAgentTrackMap[agentName];
+      const trackTop = (trackIndex + 1) * 35;
+      const calls = agentProductivity.get(agentName)?.calls || [];
 
-      calls.forEach(call=>{
+      let lastEndTime = START_OF_DAY_SECONDS;
+
+      calls.forEach(call => {
         // downtime
-        const gapStart = Math.max(lastEnd, START_OF_DAY_SECONDS);
+        const gapStart = Math.max(lastEndTime, START_OF_DAY_SECONDS);
         const gapEnd   = Math.min(call.startSeconds, END_OF_DAY_SECONDS);
         if (gapEnd > gapStart) {
-          const gapDur = gapEnd-gapStart;
-          const left = ((gapStart - timeMin)/totalTimeSeconds) * width;
-          const w    = (gapDur/totalTimeSeconds) * width;
-          const d = document.createElement('div');
-          d.className='downtime-bar';
-          d.style.left=`${left}px`; d.style.width=`${w}px`; d.style.top=`${top+16}px`;
-          timelineChart.appendChild(d);
+          const gapDuration = gapEnd - gapStart;
+          const gapPosition = ((gapStart - timeMin) / totalTimeSeconds) * width;
+          const gapWidth    = (gapDuration / totalTimeSeconds) * width;
+
+          const downtimeBar = document.createElement('div');
+          downtimeBar.className = 'downtime-bar';
+          downtimeBar.style.left = `${gapPosition}px`;
+          downtimeBar.style.width = `${gapWidth}px`;
+          downtimeBar.style.top  = `${trackTop + 16}px`;
+          timelineChart.appendChild(downtimeBar);
         }
-        lastEnd = call.endSeconds;
+        lastEndTime = call.endSeconds;
 
-        // call bar
+        // call bar (only within workday)
         const callStart = Math.max(call.startSeconds, START_OF_DAY_SECONDS);
-        const callEnd   = Math.min(call.endSeconds, END_OF_DAY_SECONDS);
-        const dur = Math.max(0, callEnd - callStart);
-        if (dur <= 0) return;
+        const callEnd   = Math.min(call.endSeconds,   END_OF_DAY_SECONDS);
+        const callDur   = callEnd - callStart;
+        if (callDur <= 0) return;
 
-        const left = ((callStart - timeMin)/totalTimeSeconds) * width;
-        const w    = (dur/totalTimeSeconds) * width;
-
-        let bg = 'bg-gray-400';
-        if (call.callType === 'ConnectedInbound') bg='bg-green-500';
-        else if (call.callType === 'ConnectedOutbound') bg='bg-blue-500';
-        else if (call.callType === 'Transferred') bg='bg-yellow-500';
-        else if (call.callType === 'OutboundAttempt') bg='bg-blue-300';
+        const startPosition = ((callStart - timeMin) / totalTimeSeconds) * width;
+        const durationWidth = (callDur / totalTimeSeconds) * width;
 
         const bar = document.createElement('div');
-        bar.className = `call-bar ${bg}`;
-        bar.style.left = `${left}px`;
-        bar.style.width = `${Math.max(3, w)}px`;
-        bar.style.top = `${top + 5}px`;
+        let bgColor = 'bg-gray-400';
+        if (call.callType === 'ConnectedInbound') bgColor = 'bg-green-500';
+        else if (call.callType === 'ConnectedOutbound') bgColor = 'bg-blue-500';
+        else if (call.callType === 'Transferred') bgColor = 'bg-yellow-500';
+        else if (call.callType === 'OutboundAttempt') bgColor = 'bg-blue-300';
+
+        bar.className = `call-bar ${bgColor}`;
+        bar.style.left = `${startPosition}px`;
+        bar.style.width = `${Math.max(3, durationWidth)}px`;
+        bar.style.top = `${trackTop + 5}px`;
+
         bar.dataset.agent = call.agentName;
-        bar.dataset.direction = call.direction || '';
+        bar.dataset.direction = call.direction;
         bar.dataset.start = call.startTime.toLocaleTimeString('en-US');
-        bar.dataset.duration = fmtMS(call.callLength);
-        bar.dataset.result = call.result || '';
+        bar.dataset.duration = formatDurationMs(call.callLength);
+        bar.dataset.result = call.result;
+
         bar.addEventListener('mousemove', showTooltip);
         bar.addEventListener('mouseleave', hideTooltip);
+
         timelineChart.appendChild(bar);
       });
 
-      // tail downtime
-      const tailStart = Math.max(lastEnd, START_OF_DAY_SECONDS);
-      const tailEnd = END_OF_DAY_SECONDS;
-      if (tailEnd > tailStart) {
-        const gapDur = tailEnd-tailStart;
-        const left = ((tailStart - timeMin)/totalTimeSeconds) * width;
-        const w    = (gapDur/totalTimeSeconds) * width;
-        const d = document.createElement('div');
-        d.className='downtime-bar';
-        d.style.left=`${left}px`; d.style.width=`${w}px`; d.style.top=`${top+16}px`;
-        timelineChart.appendChild(d);
+      // final downtime
+      const finalGapStart = Math.max(lastEndTime, START_OF_DAY_SECONDS);
+      const finalGapEnd   = END_OF_DAY_SECONDS;
+      if (finalGapEnd > finalGapStart) {
+        const gapDuration = finalGapEnd - finalGapStart;
+        const gapPosition = ((finalGapStart - timeMin) / totalTimeSeconds) * width;
+        const gapWidth    = (gapDuration / totalTimeSeconds) * width;
+
+        const downtimeBar = document.createElement('div');
+        downtimeBar.className = 'downtime-bar';
+        downtimeBar.style.left = `${gapPosition}px`;
+        downtimeBar.style.width = `${gapWidth}px`;
+        downtimeBar.style.top  = `${trackTop + 16}px`;
+        timelineChart.appendChild(downtimeBar);
       }
     });
 
     filterFeedback.textContent = `${selectedAgents.length} Agents Selected`;
     renderDailyStats();
-  }
+  };
 
-  function showTooltip(e) {
+  const showTooltip = (e) => {
     const bar = e.currentTarget;
-    let t = bar.dataset.direction;
-    if (VALID_RESULTS_TRANSFERRED.includes(bar.dataset.result)) t='Transfer';
-    else if (!VALID_RESULTS_CONNECTED.includes(bar.dataset.result)) t='Outbound Attempt';
+    let directionLabel = bar.dataset.direction;
+    if (VALID_RESULTS_TRANSFERRED.includes(bar.dataset.result)) directionLabel = 'Transfer';
+    else if (!VALID_RESULTS_CONNECTED.includes(bar.dataset.result)) directionLabel = 'Outbound Attempt';
+
     tooltip.innerHTML = `
       <div class="text-sm font-bold text-white mb-1">${bar.dataset.agent}</div>
       <div class="text-xs text-gray-300">
-        <p><strong>Type:</strong> ${t}</p>
+        <p><strong>Type:</strong> ${directionLabel}</p>
         <p><strong>Result:</strong> ${bar.dataset.result}</p>
-        <p><strong>Start:</strong> ${bar.dataset.start}</p>
+        <p><strong>Start Time:</strong> ${bar.dataset.start}</p>
         <p><strong>Duration:</strong> ${bar.dataset.duration}</p>
       </div>`;
     const rect = bar.getBoundingClientRect();
     const scrollRect = timelineScrollContainer.getBoundingClientRect();
     const scrollLeft = timelineScrollContainer.scrollLeft;
     const x = rect.left - scrollRect.left + rect.width/2 + scrollLeft;
-    const y = rect.top - scrollRect.top;
+    const y = rect.top  - scrollRect.top;
     tooltip.style.left = `${x}px`;
-    tooltip.style.top = `${y}px`;
+    tooltip.style.top  = `${y}px`;
     tooltip.classList.add('show-tooltip');
-  }
-  const hideTooltip = ()=>tooltip.classList.remove('show-tooltip');
+  };
+  const hideTooltip = () => tooltip.classList.remove('show-tooltip');
 
-  // ===== Events =====
-  function handleFilterChange() {
-    const checks = document.querySelectorAll('#agent-list-panel input[type="checkbox"]');
+  // --- Events ---
+  const handleFilterChange = () => {
+    const checkboxes = document.querySelectorAll('#agent-list-panel input[type="checkbox"]');
     selectedAgents = [];
-    checks.forEach(cb=>{ if (cb.checked) selectedAgents.push(cb.value); });
+    checkboxes.forEach(cb => { if (cb.checked) selectedAgents.push(cb.value); });
     renderTimeline(zoomSlider.value);
-  }
-  function handleClearSelection() {
-    const checks = document.querySelectorAll('#agent-list-panel input[type="checkbox"]');
-    checks.forEach(cb=>cb.checked=false);
+  };
+  const handleClearSelection = () => {
+    const checkboxes = document.querySelectorAll('#agent-list-panel input[type="checkbox"]');
+    checkboxes.forEach(cb => cb.checked = false);
     handleFilterChange();
-  }
-  function handleZoomChange(e){ renderTimeline(e.target.value); }
+  };
+  const handleZoomChange = (e) => renderTimeline(e.target.value);
 
-  function handleWorkbook(wb) {
-    const sheet = wb.Sheets["Calls"] || wb.Sheets[wb.SheetNames[0]];
-    if (!sheet) { dropHelp.textContent = "No 'Calls' sheet found."; return; }
-    const rows = XLSX.utils.sheet_to_json(sheet, { defval:"" });
-    const agents = parseRows(rows);
-    if (agents.length) {
+  const handleWorkbook = (workbook) => {
+    const sheet = workbook.Sheets["Calls"] || workbook.Sheets[workbook.SheetNames[0]];
+    if (!sheet) { loadFeedback.textContent = "No 'Calls' sheet found."; return; }
+    const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+    const agentNames = parseRows(rows);
+
+    if (agentNames.length > 0) {
       renderTimeline(zoomSlider.value);
       document.getElementById('visualization-area').classList.remove('hidden');
     } else {
       document.getElementById('visualization-area').classList.add('hidden');
-      dropHelp.textContent = "Loaded, but no agent rows matched.";
+      loadFeedback.textContent = "Data loaded, but no calls recognized.";
     }
-  }
+  };
 
-  function handleFileUpload(file) {
+  const handleFileUpload = (file) => {
     const name = file.name.toLowerCase();
     if (!(name.endsWith('.xlsx') || name.endsWith('.xls'))) {
-      dropHelp.textContent = "Please choose an .xlsx file.";
+      loadFeedback.textContent = "Please drop a RingCentral XLSX Calls file (.xlsx).";
       return;
     }
-    dropHelp.textContent = `Processing ${file.name}…`;
     const reader = new FileReader();
-    reader.onload = (e)=>{
+    reader.onload = (e) => {
       const data = new Uint8Array(e.target.result);
-      const wb = XLSX.read(data, { type:'array' });
-      handleWorkbook(wb);
-      dropHelp.textContent = `Loaded ${file.name}`;
+      const workbook = XLSX.read(data, { type: 'array' });
+      handleWorkbook(workbook);
+      loadFeedback.textContent = `Loaded ${file.name}`;
     };
     reader.readAsArrayBuffer(file);
-  }
+    loadFeedback.textContent = `Processing ${file.name}...`;
+  };
 
-  function init() {
-    // uploader
-    fileInput.addEventListener('change', (e)=>{ if (e.target.files?.[0]) handleFileUpload(e.target.files[0]); });
-    ['dragenter','dragover','dragleave','drop'].forEach(ev=>{
-      dropArea.addEventListener(ev, (e)=>{ e.preventDefault(); e.stopPropagation(); }, false);
+  const initApp = () => {
+    // file picker
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) handleFileUpload(file);
     });
-    dropArea.addEventListener('drop', (e)=>{
+
+    // drag/drop
+    ['dragenter','dragover','dragleave','drop'].forEach(ev =>
+      dropArea.addEventListener(ev, (e)=>{ e.preventDefault(); e.stopPropagation(); }, false)
+    );
+    dropArea.addEventListener('drop', (e) => {
       const dt = e.dataTransfer;
-      if (dt?.files?.length) handleFileUpload(dt.files[0]);
-    });
-    dropArea.addEventListener('click', ()=>fileInput.click());
+      if (dt.files && dt.files.length) handleFileUpload(dt.files[0]);
+    }, false);
+    dropArea.addEventListener('click', ()=> fileInput.click());
 
     // controls
     zoomSlider.addEventListener('input', handleZoomChange);
     document.getElementById('applyFilter').addEventListener('click', handleFilterChange);
     document.getElementById('clearSelection').addEventListener('click', handleClearSelection);
 
-    // initial empty render keeps layout stable
+    // initial seeding so layout renders nicely before load
+    seedAgents();
+    selectedAgents = [...AGENT_LIST];
     renderTimeline(zoomSlider.value);
-  }
-  window.onload = init;
+  };
+
+  window.onload = initApp;
 </script>
 </body>
 </html>
-11.12
