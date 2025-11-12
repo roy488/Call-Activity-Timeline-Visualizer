@@ -2,657 +2,665 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Agent Call Activity Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Tailwind -->
   <script src="https://cdn.tailwindcss.com"></script>
+  <!-- SheetJS for XLSX parsing -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- Plotly for heatmap -->
+  <script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
+
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
-    body { font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji"; background:#f7f9fb; }
-    .timeline-container{ overflow-x:auto; width:100%; }
-    .timeline-chart{ position:relative; min-width:1500px; }
-    .agent-track{ height:35px; border-bottom:1px solid #e5e7eb; position:relative; }
-    .call-bar{ position:absolute; height:25px; top:5px; border-radius:4px; cursor:pointer; transition:transform .1s; }
-    .call-bar:hover{ transform:scaleY(1.15); z-index:10; }
-    .downtime-bar{ position:absolute; height:3px; top:16px; background:#ef4444; border-radius:1px; }
-    .tooltip{ position:absolute; z-index:30; background:#111827; color:#fff; padding:8px 12px; border-radius:6px; box-shadow:0 4px 12px rgba(0,0,0,.2); pointer-events:none; opacity:0; transform:translate(-50%,-10px); transition:opacity .2s, transform .2s; min-width:200px; }
-    .show-tooltip{ opacity:1; transform:translate(-50%,-36px); }
-    .agent-label-row{ height:35px; line-height:35px; border-bottom:1px solid #e5e7eb; }
-    #agent-labels-header{ height:36px; }
-    .badge{ display:inline-flex; align-items:center; gap:.4rem; padding:.15rem .5rem; border-radius:.5rem; font-size:.75rem; font-weight:600; }
+    body { font-family: 'Inter', sans-serif; background: #f7f9fb; }
+    .card { background:#fff; border:1px solid #e5e7eb; border-radius:14px; box-shadow:0 1px 2px rgba(0,0,0,0.04); }
+    .dash-header { border-bottom:4px solid #10b981; }
+    .toggle-chevron { transition: transform .2s ease; }
+    .collapse[aria-expanded="true"] .toggle-chevron { transform: rotate(90deg); }
   </style>
 </head>
-<body class="p-6 md:p-8">
-  <header class="max-w-7xl mx-auto mb-6 p-4 bg-white rounded-xl shadow-lg border-b-4 border-emerald-500">
-    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-      <div>
-        <h1 class="text-2xl md:text-3xl font-bold text-gray-800">Agent Call Activity Dashboard</h1>
-        <p id="date-range-summary" class="text-gray-500 mt-1">Upload both RingCentral XLSX reports: <span class="font-medium">Calls</span> (sheet “Calls”) and <span class="font-medium">Users</span> (sheet “Users”).</p>
-      </div>
-      <div class="flex items-center gap-2">
-        <label class="inline-flex items-center gap-2 text-sm">
-          <input id="toggle-heatmap" type="checkbox" class="rounded text-emerald-600 focus:ring-emerald-600">
-          <span>Show Hour×Day Heatmap</span>
-        </label>
-        <input id="fileInput" type="file" accept=".xlsx,.xls" multiple class="hidden">
-        <button id="chooseFiles" class="px-3 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 text-sm font-medium">Choose Files</button>
-      </div>
-    </div>
-    <div id="fileBadges" class="flex flex-wrap gap-2 mt-3"></div>
-  </header>
+<body class="min-h-screen text-gray-900">
 
-  <main id="app" class="max-w-7xl mx-auto space-y-8">
-    <!-- Heatmap (hidden by default) -->
-    <section id="heatmap-section" class="hidden p-4 bg-white rounded-xl shadow border">
-      <h2 class="text-lg md:text-xl font-semibold text-gray-800 mb-3">Heatmap — Call Density (by Hour × Day)</h2>
-      <canvas id="heatmap" height="260"></canvas>
-      <p class="text-xs text-gray-500 mt-2">Heatmap uses the <span class="font-medium">Calls</span> file (session-level attribution). Agent filter applies.</p>
+  <div class="max-w-7xl mx-auto px-4 py-8">
+    <!-- Header -->
+    <header class="card dash-header p-6 mb-6">
+      <h1 class="text-3xl font-bold">Agent Call Activity Dashboard</h1>
+      <p id="date-range-summary" class="text-gray-500 mt-1">
+        Upload the Calls and Users XLSX reports to begin.
+      </p>
+    </header>
+
+    <!-- Single Upload (accept both files at once) -->
+    <section class="card p-6 mb-6">
+      <h2 class="text-xl font-semibold mb-2">Upload Files (.xlsx)</h2>
+      <p class="text-sm text-gray-600 mb-4">
+        You can select or drop <strong>both files at once</strong>:
+        <span class="text-emerald-700 font-medium">Multi-Day Agent Stats — Calls</span> (sheet “Calls”) and
+        <span class="text-indigo-700 font-medium">Multi-Day Agent Stats — Users</span> (sheet “Users”).
+      </p>
+
+      <div id="drop-both" class="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer hover:bg-slate-50">
+        <p class="text-gray-700 mb-2">Drag & drop one or two XLSX files, or click to choose</p>
+        <input type="file" id="fileBoth" accept=".xlsx,.xls" multiple class="hidden">
+        <button id="btnBoth" class="px-4 py-2 rounded-md bg-slate-800 text-white hover:bg-slate-900">Select Files</button>
+        <div class="grid md:grid-cols-2 gap-4 mt-4 text-sm">
+          <p id="callsStatus" class="text-gray-500">Calls: not loaded</p>
+          <p id="usersStatus" class="text-gray-500">Users: not loaded</p>
+        </div>
+      </div>
     </section>
 
-    <!-- Timeline + controls -->
-    <section class="p-4 bg-white rounded-xl shadow border">
-      <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3 mb-4">
-        <div class="flex items-center gap-4">
-          <div>
-            <label class="text-sm font-medium text-gray-700">Zoom</label>
-            <input type="range" id="zoom-slider" min="100" max="400" value="160" class="w-48 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
-          </div>
-          <span id="filter-feedback" class="badge bg-emerald-100 text-emerald-700">0 Agents Selected</span>
-        </div>
-        <div class="flex items-start gap-2">
-          <div id="agent-list-panel" class="max-h-40 overflow-y-auto p-2 border rounded bg-gray-50 w-64 text-sm">
-            <p class="text-gray-500 text-center">Load files to populate agents.</p>
-          </div>
-          <div class="flex flex-col gap-2">
-            <button id="applyFilter" class="px-3 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 text-sm font-medium">Apply Filter</button>
-            <button id="clearSelection" class="px-3 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 text-sm font-medium">Clear</button>
-          </div>
+    <!-- Heatmap -->
+    <section id="heatmapCard" class="card p-6 mb-6 hidden">
+      <div class="flex items-center justify-between">
+        <h2 class="text-2xl font-semibold">📅 Heatmap — Call Activity by Hour</h2>
+        <div class="text-sm text-gray-500" id="heatmapLegend">
+          Calls counted when Connected/Answered/Transferred or Outbound ≥ 5s
         </div>
       </div>
-
-      <div id="visualization-area" class="flex overflow-hidden border rounded">
-        <div class="flex-shrink-0 w-52 border-r bg-gray-50">
-          <div id="agent-labels-header" class="px-3 text-xs font-semibold text-gray-600 uppercase border-b border-gray-300 flex items-center">Agent Name</div>
-          <div id="agent-label-container"></div>
-        </div>
-        <div id="timeline-scroll-container" class="timeline-container relative">
-          <div id="timeline-chart" class="timeline-chart"></div>
-        </div>
+      <div class="mt-4">
+        <div id="heatmap" style="width:100%;height:520px;"></div>
       </div>
-      <div id="call-tooltip" class="tooltip"></div>
     </section>
 
-    <!-- Daily metrics -->
-    <section class="p-4 bg-white rounded-xl shadow border">
-      <h2 class="text-xl font-semibold text-gray-800 mb-4">Daily Productivity Metrics (8-Hour Net)</h2>
+    <!-- Summary -->
+    <section id="summaryCard" class="card p-6 mb-6 hidden">
+      <h2 class="text-2xl font-semibold mb-4">📊 Daily Productivity Metrics (8-Hour Net)</h2>
       <div class="overflow-x-auto">
-        <table class="min-w-full divide-y divide-gray-200">
-          <thead class="bg-gray-50">
-            <tr>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Agent Name</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Inbound</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Outbound</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Calls</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-emerald-700 uppercase">Inbound Handle</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-indigo-700 uppercase">Outbound Handle</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase">Total Productive</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-red-600 uppercase">Time Off Phone (8h)</th>
-            </tr>
-          </thead>
-          <tbody id="stats-table-body" class="bg-white divide-y divide-gray-200"></tbody>
-        </table>
-      </div>
-      <p id="metrics-source-note" class="text-xs text-gray-500 mt-2"></p>
-    </section>
-
-    <!-- Discrepancies -->
-    <section id="diff-section" class="hidden p-4 bg-white rounded-xl shadow border">
-      <div class="flex items-center justify-between mb-3">
-        <h2 class="text-xl font-semibold text-gray-800">Calls vs Users — Discrepancies</h2>
-        <span id="diff-count" class="badge bg-amber-100 text-amber-700">0 issues</span>
-      </div>
-      <div class="overflow-x-auto">
-        <table class="min-w-full divide-y divide-gray-200">
+        <table class="min-w-full">
           <thead class="bg-gray-50">
             <tr>
               <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Agent</th>
-              <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Metric</th>
-              <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Calls Value</th>
-              <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Users Value</th>
-              <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Δ</th>
+              <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Total Calls</th>
+              <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Inbound Time</th>
+              <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Outbound Time</th>
+              <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Total Talk Time</th>
+              <th class="px-4 py-2 text-left text-xs font-semibold text-red-600 uppercase">Time Off Phone (8h)</th>
             </tr>
           </thead>
-          <tbody id="diff-body" class="bg-white divide-y divide-gray-200 text-sm"></tbody>
+          <tbody id="summaryBody" class="divide-y divide-gray-100"></tbody>
         </table>
       </div>
-      <p class="text-xs text-gray-500 mt-2">Only rows with non-zero differences are shown.</p>
     </section>
-  </main>
+
+    <!-- Discrepancies (collapsible, hidden by default) -->
+    <section id="diffCard" class="card mb-10 hidden">
+      <button id="diffToggle" class="w-full text-left px-6 py-4 flex items-center justify-between">
+        <span class="text-xl font-semibold">🔎 Show Differences (Calls vs Users)</span>
+        <svg class="w-5 h-5 toggle-chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+        </svg>
+      </button>
+      <div id="diffPanel" class="px-6 pb-6 hidden">
+        <div class="overflow-x-auto">
+          <table class="min-w-full">
+            <thead class="bg-gray-50">
+              <tr>
+                <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Agent</th>
+                <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Calls (Calls file)</th>
+                <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Calls (Users file)</th>
+                <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Δ Calls</th>
+                <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Talk Time (Calls)</th>
+                <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Talk Time (Users)</th>
+                <th class="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Δ Talk Time</th>
+              </tr>
+            </thead>
+            <tbody id="diffBody" class="divide-y divide-gray-100"></tbody>
+          </table>
+        </div>
+        <p id="diffEmpty" class="text-sm text-gray-500 mt-3 hidden">
+          No meaningful differences detected (within ±5% or ≤1 call).
+        </p>
+      </div>
+    </section>
+  </div>
 
   <script>
-    // ====== Config / constants ======
-    const START_OF_DAY_SECONDS = 8.5 * 3600;  // 8:30 AM
-    const END_OF_DAY_SECONDS   = 17.5 * 3600; // 5:30 PM
-    const NET_WORKDAY_SECONDS  = 8 * 3600;    // 8h net
-    const IDLE_TIME_HL         = 4 * 3600;    // highlight if >4h off phone
-    const VALID_RESULTS_CONNECTED  = ["Connected","Answered"];
-    const VALID_RESULTS_TRANSFERRED = ["Transferred","Transferred / To Voicemail"];
+    // ------------------------------
+    // CONFIG
+    // ------------------------------
+    const VALID_RESULTS_CONNECTED = ["Connected", "Answered"];
+    const VALID_RESULTS_TRANSFERRED = ["Transferred", "Transferred / To Voicemail"];
 
     const AGENT_LIST = [
-      "ALEJANDRO SATUNINO CAMPOS-PEREZ","AUSTIN MITCHELL","Brady Olson","Brandon Ridder",
-      "BRANDON RUSSOM","BRENDAN BOH","Cullen Manley","David Ryan","DOMINIQUE GONZALES","Duncan Cannon",
-      "Hayden Holcomb","Joel Jubber","John Udick","KIMBERLY RAMIREZ","MARCOS HERNANDEZ","MOUNIR ROSENDO",
-      "Natasha Fowler","Nathan Hill","Olivia Kasten","Tammy Lummus","Wanda Scott"
+      "ALEJANDRO SATUNINO CAMPOS-PEREZ",
+      "AUSTIN MITCHELL",
+      "Brady Olson",
+      "Brandon Ridder",
+      "BRANDON RUSSOM",
+      "BRENDAN BOH",
+      "Cullen Manley",
+      "David Ryan",
+      "DOMINIQUE GONZALES",
+      "Duncan Cannon",
+      "Hayden Holcomb",
+      "Joel Jubber",
+      "John Udick",
+      "KIMBERLY RAMIREZ",
+      "MARCOS HERNANDEZ",
+      "MOUNIR ROSENDO",
+      "Natasha Fowler",
+      "Nathan Hill",
+      "Olivia Kasten",
+      "Tammy Lummus",
+      "Wanda Scott"
     ];
     const AGENT_MAP = new Map(AGENT_LIST.map(n => [n.toUpperCase(), n]));
     const DIRECT_ALIAS_MAP = { "NATE": "Nathan Hill" };
 
-    // ====== State ======
-    let callsRows = null;
-    let usersRows = null;
+    const NET_WORKDAY_SECONDS = 8 * 3600;
+    const IDLE_TIME_HIGHLIGHT_SECONDS = 4 * 3600;
 
-    let callData = [];                 // for timeline
-    let agentProductivity = new Map(); // durations + counts used for metrics (from Users preferred)
-    let agentFromCalls = new Map();    // metrics derived from Calls (for diff)
-    let agentFromUsers = new Map();    // metrics derived from Users (for diff)
-    let agentTrackMap = {};
-    let selectedAgents = [];
-    let timeMin = START_OF_DAY_SECONDS;
-    const totalTimeSeconds = END_OF_DAY_SECONDS - START_OF_DAY_SECONDS;
+    // ------------------------------
+    // STATE
+    // ------------------------------
+    let callsRows = null; // raw rows from Calls sheet
+    let usersRows = null; // raw rows from Users sheet
+    let callsMetrics = null; // per agent from Calls file
+    let usersMetrics = null; // per agent from Users file
+    let dateStrings = new Set(); // for header summary
 
-    // ====== DOM ======
-    const fileInput = document.getElementById('fileInput');
-    const chooseFilesBtn = document.getElementById('chooseFiles');
-    const fileBadges = document.getElementById('fileBadges');
-    const toggleHeatmap = document.getElementById('toggle-heatmap');
-    const heatmapSection = document.getElementById('heatmap-section');
-    const heatmapCanvas = document.getElementById('heatmap');
+    // ------------------------------
+    // HELPERS
+    // ------------------------------
+    function resetState() {
+      callsRows = null;
+      usersRows = null;
+      callsMetrics = null;
+      usersMetrics = null;
+      dateStrings = new Set();
+      document.getElementById('callsStatus').textContent = 'Calls: not loaded';
+      document.getElementById('usersStatus').textContent = 'Users: not loaded';
+      document.getElementById('heatmapCard').classList.add('hidden');
+      document.getElementById('summaryCard').classList.add('hidden');
+      document.getElementById('diffCard').classList.add('hidden');
+      document.getElementById('diffPanel').classList.add('hidden');
+      document.getElementById('date-range-summary').textContent =
+        'Upload the Calls and Users XLSX reports to begin.';
+      const heat = document.getElementById('heatmap');
+      if (heat) heat.innerHTML = '';
+      const body = document.getElementById('summaryBody');
+      if (body) body.innerHTML = '';
+      const diffBody = document.getElementById('diffBody');
+      if (diffBody) diffBody.innerHTML = '';
+      document.getElementById('diffEmpty').classList.add('hidden');
+    }
 
-    const timelineChart = document.getElementById('timeline-chart');
-    const timelineScroll = document.getElementById('timeline-scroll-container');
-    const agentLabelContainer = document.getElementById('agent-label-container');
-    const zoomSlider = document.getElementById('zoom-slider');
-    const filterFeedback = document.getElementById('filter-feedback');
-    const tooltip = document.getElementById('call-tooltip');
+    function extractAgentName(fullName) {
+      if (!fullName || typeof fullName !== 'string') return null;
 
-    const statsBody = document.getElementById('stats-table-body');
-    const metricsSourceNote = document.getElementById('metrics-source-note');
-
-    const diffSection = document.getElementById('diff-section');
-    const diffBody = document.getElementById('diff-body');
-    const diffCountBadge = document.getElementById('diff-count');
-
-    // ====== Utilities ======
-    const fmtHMS = (sec) => {
-      sec = Math.round(+sec || 0);
-      const h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec%60;
-      return `${h}h ${m}m ${s}s`;
-    };
-    const fmtMS  = (sec) => `${Math.floor(sec/60)}m ${sec%60}s`;
-    const toSeconds = (val) => {
-      if (val == null || val === "") return 0;
-      if (val instanceof Date) return val.getHours()*3600 + val.getMinutes()*60 + val.getSeconds();
-      if (typeof val === "number") return (val>0 && val<1) ? Math.round(val*86400) : Math.round(val);
-      if (typeof val === "string") {
-        const parts = val.split(":").map(Number);
-        if (parts.length === 3) return parts[0]*3600 + parts[1]*60 + parts[2];
-        if (parts.length === 2) return parts[0]*60 + parts[1];
-      }
-      return 0;
-    };
-    const parseDate = (v) => (v instanceof Date) ? v : new Date(v);
-    const secFromMidnight = (d) => d.getHours()*3600 + d.getMinutes()*60 + d.getSeconds();
-
-    const extractAgentName = (fullName) => {
-      if (!fullName || typeof fullName !== "string") return null;
       let cleaned = fullName;
-      if (cleaned.includes(" - ")) cleaned = cleaned.split(" - ")[0];
-      if (cleaned.includes("(")) cleaned = cleaned.split("(")[0];
+      if (cleaned.includes(' - ')) cleaned = cleaned.split(' - ')[0];
+      if (cleaned.includes('(')) cleaned = cleaned.split('(')[0];
       cleaned = cleaned.trim();
       if (!cleaned) return null;
+
       const up = cleaned.toUpperCase();
 
-      for (const [upperTarget, orig] of AGENT_MAP.entries()) {
-        if (up===upperTarget || up.startsWith(upperTarget) || upperTarget.includes(up) || up.includes(upperTarget)) return orig;
-      }
-      const directIdx = up.indexOf(" DIRECT");
-      if (directIdx>0){
-        const maybeFirst = up.slice(0,directIdx).trim().split(/\s+/).pop()||"";
-        if (DIRECT_ALIAS_MAP[maybeFirst]) return DIRECT_ALIAS_MAP[maybeFirst];
-        for (const [upperTarget, orig] of AGENT_MAP.entries()){
-          if (upperTarget.split(" ")[0]===maybeFirst) return orig;
+      // robust direct/contains matching
+      for (const [upperTarget, originalName] of AGENT_MAP.entries()) {
+        if (up === upperTarget || up.startsWith(upperTarget) || upperTarget.includes(up) || up.includes(upperTarget)) {
+          return originalName;
         }
       }
-      for (const [upperTarget, orig] of AGENT_MAP.entries()){
-        const last = upperTarget.split(" ").slice(-1)[0];
-        if (last && up.includes(last)) return orig;
+
+      // "<FirstName> Direct ..."
+      const directIdx = up.indexOf(' DIRECT');
+      if (directIdx > 0) {
+        const before = up.slice(0, directIdx).trim();
+        const maybeFirst = before.split(/\s+/).pop() || "";
+        if (DIRECT_ALIAS_MAP[maybeFirst]) return DIRECT_ALIAS_MAP[maybeFirst];
+
+        for (const [upperTarget, originalName] of AGENT_MAP.entries()) {
+          const first = upperTarget.split(' ')[0];
+          if (first === maybeFirst) return originalName;
+        }
       }
+
+      // Last-name fallback
+      for (const [upperTarget, originalName] of AGENT_MAP.entries()) {
+        const last = upperTarget.split(' ').slice(-1)[0];
+        if (last && up.includes(last)) return originalName;
+      }
+
       return null;
-    };
+    }
 
-    const addBadge = (label, ok=true) => {
-      const el = document.createElement('span');
-      el.className = `badge ${ok?'bg-emerald-100 text-emerald-700':'bg-rose-100 text-rose-700'}`;
-      el.textContent = label;
-      fileBadges.appendChild(el);
-    };
+    function excelDurationToSeconds(val) {
+      if (val == null) return 0;
 
-    // ====== Parsing ======
-    function parseCalls(rows){
-      callData = [];
-      agentFromCalls = new Map();
-      let minStart = Infinity;
+      // Date object (HH:MM:SS time)
+      if (val instanceof Date) {
+        return val.getHours()*3600 + val.getMinutes()*60 + val.getSeconds();
+      }
+      // number => Excel day fraction or seconds
+      if (typeof val === 'number') {
+        if (val > 0 && val < 1) return Math.round(val * 24 * 3600);
+        return Math.round(val); // assume already seconds
+      }
+      // string "HH:MM:SS" or "MM:SS"
+      if (typeof val === 'string') {
+        const parts = val.split(':').map(x => parseInt(x,10));
+        if (parts.length === 3 && parts.every(v=>!Number.isNaN(v))) {
+          return parts[0]*3600 + parts[1]*60 + parts[2];
+        }
+        if (parts.length === 2 && parts.every(v=>!Number.isNaN(v))) {
+          return parts[0]*60 + parts[1];
+        }
+      }
+      return 0;
+    }
 
-      rows.forEach(r=>{
-        const from = extractAgentName(r["From Name"]);
-        const to   = extractAgentName(r["To Name"]);
-        const agent = from || to;
+    function formatHMS(sec) {
+      sec = Math.round(sec || 0);
+      const h = Math.floor(sec/3600);
+      const m = Math.floor((sec%3600)/60);
+      const s = sec%60;
+      return `${h}h ${m}m ${s}s`;
+    }
+
+    function parseMaybeDate(val) {
+      if (val instanceof Date) return val;
+      const d = new Date(val);
+      return isNaN(d.getTime()) ? null : d;
+    }
+
+    // Users sheet column resolver (flexible names)
+    function findUsersColumns(rowKeys) {
+      const keys = rowKeys.map(k => String(k).toLowerCase());
+      const finder = (cands) => {
+        for (const label of cands) {
+          const idx = keys.findIndex(k => k.includes(label));
+          if (idx >= 0) return rowKeys[idx];
+        }
+        return null;
+      };
+      return {
+        agent:   finder(['agent','user','name']),
+        calls:   finder(['total calls','calls']),
+        inTime:  finder(['inbound handle time','inbound talk time','inbound time']),
+        outTime: finder(['outbound handle time','outbound talk time','outbound time']),
+        totTime: finder(['total productive time','total talk time','productive time','handle time total'])
+      };
+    }
+
+    // ------------------------------
+    // PARSE CALLS FILE → metrics + heatmap
+    // ------------------------------
+    function buildCallsMetrics(rows) {
+      const perAgent = {};
+      const agentsSet = new Set();
+
+      rows.forEach(r => {
+        const from = r["From Name"];
+        const to = r["To Name"];
+        const result = r["Result"];
+        const direction = r["Call Direction"];
+        const startRaw = r["Call Start Time"];
+        const lengthRaw = r["Call Length"];
+
+        let agent = extractAgentName(from) || extractAgentName(to);
         if (!agent) return;
 
-        const result = r["Result"];
-        const dir    = r["Call Direction"];
-        const clSec  = toSeconds(r["Call Length"]);
-        if (!clSec) return;
+        const callLen = excelDurationToSeconds(lengthRaw);
+        if (!callLen) return;
 
-        let valid=false, callType="Attempted";
-        if (VALID_RESULTS_CONNECTED.includes(result)){
-          valid=true; callType = dir==="Outbound" ? "ConnectedOutbound" : "ConnectedInbound";
-        } else if (VALID_RESULTS_TRANSFERRED.includes(result)){
-          valid=true; callType = "Transferred";
-        } else if (dir==="Outbound" && clSec>=5){
-          valid=true; callType = "OutboundAttempt";
-        }
+        let valid = false;
+        if (VALID_RESULTS_CONNECTED.includes(result)) valid = true;
+        else if (VALID_RESULTS_TRANSFERRED.includes(result)) valid = true;
+        else if (direction === 'Outbound' && callLen >= 5) valid = true;
         if (!valid) return;
 
-        const start = parseDate(r["Call Start Time"]);
-        if (isNaN(start)) return;
-        const startS = secFromMidnight(start), endS = startS + clSec;
-        minStart = Math.min(minStart,startS);
+        const start = parseMaybeDate(startRaw);
+        if (!start) return;
 
-        callData.push({agentName:agent,startTime:start,startSeconds:startS,endSeconds:endS,callLength:clSec,direction:dir,result,callType});
+        agentsSet.add(agent);
+        dateStrings.add(start.toLocaleDateString());
 
-        if (!agentFromCalls.has(agent)) agentFromCalls.set(agent,{inbound:0,outbound:0,inSec:0,outSec:0});
-        const bucket = agentFromCalls.get(agent);
-        if (callType==="ConnectedInbound" || callType==="Transferred"){ bucket.inbound++; bucket.inSec += clSec; } else { bucket.outbound++; bucket.outSec += clSec; }
+        if (!perAgent[agent]) perAgent[agent] = { calls:0, talkSec:0, inboundSec:0, outboundSec:0 };
+        perAgent[agent].calls += 1;
+        perAgent[agent].talkSec += callLen;
+        if (direction === 'Inbound' || VALID_RESULTS_TRANSFERRED.includes(result)) perAgent[agent].inboundSec += callLen;
+        else perAgent[agent].outboundSec += callLen;
       });
 
-      // sort calls for each agent
-      callData.sort((a,b)=>a.startSeconds-b.startSeconds);
-    }
+      const agents = AGENT_LIST.filter(a => agentsSet.has(a));
+      const hours = Array.from({length:24}, (_,i)=>i);
+      const z = agents.map(() => Array(24).fill(0));
 
-    function parseUsers(rows){
-      agentFromUsers = new Map();
-      rows.forEach(r=>{
-        const name = extractAgentName(r["Name"] || r["User"] || r["Agent"]);
-        if (!name) return;
+      // Fill heatmap counts
+      rows.forEach(r => {
+        const from = r["From Name"];
+        const to = r["To Name"];
+        const result = r["Result"];
+        const direction = r["Call Direction"];
+        const startRaw = r["Call Start Time"];
+        const lengthRaw = r["Call Length"];
 
-        const inbound  = Number(r["# Inbound"] ?? r["Inbound"] ?? 0) || 0;
-        const outbound = Number(r["# Outbound"] ?? r["Outbound"] ?? 0) || 0;
-        const inSec  = toSeconds(r["Total Handle Time (in)"]  ?? r["Inbound Handle Time"]  ?? 0);
-        const outSec = toSeconds(r["Total Handle Time (out)"] ?? r["Outbound Handle Time"] ?? 0);
+        let agent = extractAgentName(from) || extractAgentName(to);
+        if (!agent) return;
+        if (!agents.includes(agent)) return;
 
-        agentFromUsers.set(name,{inbound,outbound,inSec,outSec});
-      });
-    }
+        const callLen = excelDurationToSeconds(lengthRaw);
+        if (!callLen) return;
 
-    function buildProductivity(){
-      agentProductivity = new Map();
-      const allAgents = new Set([...agentFromCalls.keys(), ...agentFromUsers.keys()]);
+        let valid = false;
+        if (VALID_RESULTS_CONNECTED.includes(result)) valid = true;
+        else if (VALID_RESULTS_TRANSFERRED.includes(result)) valid = true;
+        else if (direction === 'Outbound' && callLen >= 5) valid = true;
+        if (!valid) return;
 
-      allAgents.forEach(name=>{
-        const c = agentFromCalls.get(name) || {inbound:0,outbound:0,inSec:0,outSec:0};
-        const u = agentFromUsers.get(name) || null;
+        const start = parseMaybeDate(startRaw);
+        if (!start) return;
+        const hour = start.getHours();
 
-        // Prefer USERS when present
-        const inbound  = u ? u.inbound  : c.inbound;
-        const outbound = u ? u.outbound : c.outbound;
-        const inSec    = u ? u.inSec    : c.inSec;
-        const outSec   = u ? u.outSec   : c.outSec;
-
-        agentProductivity.set(name,{
-          inbound, outbound, total: inbound+outbound,
-          inSec, outSec, totalSec: inSec+outSec
-        });
-      });
-    }
-
-    function populateAgentFilter(){
-      const container = document.getElementById('agent-list-panel');
-      container.innerHTML = '';
-      const names = Array.from(agentProductivity.keys()).sort((a,b)=>a.localeCompare(b));
-      selectedAgents = [...names];
-      names.forEach(n=>{
-        const id = `agent-${n.replace(/\s/g,'-')}`;
-        const row = document.createElement('label');
-        row.className = 'flex items-center gap-2 px-2 py-1 text-sm cursor-pointer hover:bg-emerald-50 rounded';
-        row.innerHTML = `<input id="${id}" type="checkbox" class="rounded text-emerald-600 focus:ring-emerald-600" checked> <span>${n}</span>`;
-        row.querySelector('input').addEventListener('change',()=>{
-          selectedAgents = names.filter(name=>document.getElementById(`agent-${name.replace(/\s/g,'-')}`).checked);
-          renderTimeline(+zoomSlider.value);
-        });
-        container.appendChild(row);
-      });
-      filterFeedback.textContent = `${names.length} Agents Selected`;
-    }
-
-    // ====== Timeline render ======
-    function formatTime(seconds){
-      const d=new Date(0,0,0,0,0,Math.round(seconds)); 
-      return d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:true});
-    }
-
-    function renderTimeline(zoom){
-      const width = 1500 * (zoom/100);
-      timelineChart.style.width = `${width}px`;
-      timelineChart.innerHTML = '';
-      agentLabelContainer.innerHTML = '';
-
-      const visible = Array.from(agentProductivity.keys())
-        .sort((a,b)=>a.localeCompare(b))
-        .filter(n=>selectedAgents.includes(n));
-
-      const visibleMap = {};
-      visible.forEach((n,i)=>visibleMap[n]=i);
-
-      timelineChart.style.height = `${(visible.length+1)*35}px`;
-
-      // time axis marks every 30m
-      const axis = document.createElement('div');
-      axis.className = 'absolute top-0 left-0 w-full h-8 flex border-b border-gray-300';
-      for(let s=START_OF_DAY_SECONDS; s<=END_OF_DAY_SECONDS; s+=1800){
-        const pos = ((s - timeMin)/totalTimeSeconds)*100;
-        const marker=document.createElement('div');
-        marker.className='absolute h-full text-xs text-gray-500 pt-1 text-center font-medium';
-        marker.style.left=`${pos}%`; marker.style.transform='translateX(-50%)'; marker.style.borderLeft='1px dashed #ccc'; marker.style.width='1px';
-        marker.textContent = formatTime(s);
-        axis.appendChild(marker);
-      }
-      timelineChart.appendChild(axis);
-
-      // labels + tracks
-      visible.forEach((name,idx)=>{
-        const top = (idx+1)*35;
-        const label=document.createElement('div');
-        label.className='agent-label-row px-3 text-sm font-medium text-gray-800 truncate';
-        label.textContent=name; agentLabelContainer.appendChild(label);
-
-        const track=document.createElement('div');
-        track.className='agent-track w-full'; track.style.top=`${top}px`; track.style.position='absolute';
-        timelineChart.appendChild(track);
+        const ai = agents.indexOf(agent);
+        z[ai][hour] += 1;
       });
 
-      // calls
-      const widthPx = width;
-      visible.forEach(name=>{
-        const idx = visibleMap[name];
-        const top = (idx+1)*35;
-        const calls = callData.filter(c=>c.agentName===name);
-        let lastEnd = START_OF_DAY_SECONDS;
-
-        calls.forEach(call=>{
-          const gapStart = Math.max(lastEnd, START_OF_DAY_SECONDS);
-          const gapEnd   = Math.min(call.startSeconds, END_OF_DAY_SECONDS);
-          if (gapEnd > gapStart){
-            const gapPos = ((gapStart - timeMin)/totalTimeSeconds)*widthPx;
-            const gapW   = ((gapEnd   - gapStart)/totalTimeSeconds)*widthPx;
-            const gap = document.createElement('div');
-            gap.className='downtime-bar'; gap.style.left=`${gapPos}px`; gap.style.width=`${gapW}px`; gap.style.top=`${top+16}px`;
-            timelineChart.appendChild(gap);
-          }
-          lastEnd = call.endSeconds;
-
-          const callStart = Math.max(call.startSeconds, START_OF_DAY_SECONDS);
-          const callEnd   = Math.min(call.endSeconds, END_OF_DAY_SECONDS);
-          const dur = callEnd - callStart;
-          if (dur>0){
-            const left = ((callStart - timeMin)/totalTimeSeconds)*widthPx;
-            const w    = (dur/totalTimeSeconds)*widthPx;
-            const bar = document.createElement('div');
-            let bg='bg-gray-400';
-            if (call.callType==='ConnectedInbound') bg='bg-green-500';
-            else if (call.callType==='ConnectedOutbound') bg='bg-blue-500';
-            else if (call.callType==='Transferred') bg='bg-yellow-500';
-            else if (call.callType==='OutboundAttempt') bg='bg-blue-300';
-
-            bar.className=`call-bar ${bg}`; 
-            bar.style.left=`${left}px`; bar.style.width=`${Math.max(3,w)}px`; bar.style.top=`${top+5}px`;
-            bar.dataset.agent = call.agentName;
-            bar.dataset.direction = call.direction;
-            bar.dataset.result = call.result;
-            bar.dataset.start = call.startTime.toLocaleTimeString('en-US');
-            bar.dataset.dur = fmtMS(call.callLength);
-            bar.addEventListener('mousemove', showTooltip);
-            bar.addEventListener('mouseleave', hideTooltip);
-            timelineChart.appendChild(bar);
-          }
-        });
-
-        // final downtime
-        const finalStart = Math.max(lastEnd, START_OF_DAY_SECONDS), finalEnd = END_OF_DAY_SECONDS;
-        if (finalEnd>finalStart){
-          const gapPos = ((finalStart - timeMin)/totalTimeSeconds)*widthPx;
-          const gapW   = ((finalEnd   - finalStart)/totalTimeSeconds)*widthPx;
-          const gap = document.createElement('div');
-          gap.className='downtime-bar'; gap.style.left=`${gapPos}px`; gap.style.width=`${gapW}px`; gap.style.top=`${top+16}px`;
-          timelineChart.appendChild(gap);
-        }
-      });
-
-      filterFeedback.textContent = `${visible.length} Agents Selected`;
-      renderMetricsTable();
+      return { perAgent, heatmap: { agents, hours, z } };
     }
 
-    function showTooltip(e){
-      const bar = e.currentTarget;
-      let label = bar.dataset.direction;
-      if (VALID_RESULTS_TRANSFERRED.includes(bar.dataset.result)) label='Transfer';
-      else if (!VALID_RESULTS_CONNECTED.includes(bar.dataset.result)) label='Outbound Attempt';
+    // ------------------------------
+    // PARSE USERS FILE → metrics table (truth for summary)
+    // ------------------------------
+    function buildUsersMetrics(rows) {
+      if (!rows || rows.length === 0) return {};
+      const colMap = findUsersColumns(Object.keys(rows[0]));
 
-      tooltip.innerHTML = `
-        <div class="text-sm font-bold text-white mb-1">${bar.dataset.agent}</div>
-        <div class="text-xs text-gray-200">
-          <p><strong>Type:</strong> ${label}</p>
-          <p><strong>Result:</strong> ${bar.dataset.result}</p>
-          <p><strong>Start:</strong> ${bar.dataset.start}</p>
-          <p><strong>Duration:</strong> ${bar.dataset.dur}</p>
-        </div>`;
-      const rect = bar.getBoundingClientRect(), scrollRect = timelineScroll.getBoundingClientRect();
-      const x = rect.left - scrollRect.left + rect.width/2 + timelineScroll.scrollLeft;
-      const y = rect.top - scrollRect.top;
-      tooltip.style.left=`${x}px`; tooltip.style.top=`${y}px`; tooltip.classList.add('show-tooltip');
-    }
-    function hideTooltip(){ tooltip.classList.remove('show-tooltip'); }
+      const perAgent = {};
+      rows.forEach(r => {
+        const agent = extractAgentName(r[colMap.agent]);
+        if (!agent) return;
 
-    // ====== Metrics & diff ======
-    function renderMetricsTable(){
-      const rows = Array.from(agentProductivity.entries())
-        .filter(([name])=>selectedAgents.includes(name))
-        .sort(([a],[b])=>a.localeCompare(b));
+        const totalCalls = Number(r[colMap.calls]) || 0;
+        const inboundSec = excelDurationToSeconds(r[colMap.inTime]);
+        const outboundSec = excelDurationToSeconds(r[colMap.outTime]);
+        let totalTalk = excelDurationToSeconds(r[colMap.totTime]);
+        if (!totalTalk) totalTalk = inboundSec + outboundSec; // fallback
 
-      statsBody.innerHTML = '';
-      rows.forEach(([name, s], i)=>{
-        const totalProd = s.inSec + s.outSec;
-        const off = Math.max(0, NET_WORKDAY_SECONDS - totalProd);
-        const offClass = off > IDLE_TIME_HL ? 'text-red-700 font-semibold':'text-gray-700';
-        const tr = document.createElement('tr');
-        tr.className = `hover:bg-gray-50 ${i%2?'bg-gray-50':'bg-white'}`;
-        tr.innerHTML = `
-          <td class="px-6 py-3 text-sm font-medium text-gray-900">${name}</td>
-          <td class="px-6 py-3 text-sm text-gray-700">${s.inbound} / ${s.outbound}</td>
-          <td class="px-6 py-3 text-sm text-gray-700">${s.outbound + s.inbound}</td>
-          <td class="px-6 py-3 text-sm text-emerald-600">${fmtHMS(s.inSec)}</td>
-          <td class="px-6 py-3 text-sm text-indigo-600">${fmtHMS(s.outSec)}</td>
-          <td class="px-6 py-3 text-sm text-gray-700">${fmtHMS(totalProd)}</td>
-          <td class="px-6 py-3 text-sm ${offClass}">${fmtHMS(off)}</td>
-        `;
-        // columns order fixed above
-        // Adjust: columns are: Inbound, Outbound, Total Calls, Inbound Handle, Outbound Handle, Total Productive, Time Off Phone
-        // We showed inbound/outbound together; change to separate:
-        tr.innerHTML = `
-          <td class="px-6 py-3 text-sm font-medium text-gray-900">${name}</td>
-          <td class="px-6 py-3 text-sm text-gray-700">${s.inbound}</td>
-          <td class="px-6 py-3 text-sm text-gray-700">${s.outbound}</td>
-          <td class="px-6 py-3 text-sm text-gray-700">${s.total}</td>
-          <td class="px-6 py-3 text-sm text-emerald-600">${fmtHMS(s.inSec)}</td>
-          <td class="px-6 py-3 text-sm text-indigo-600">${fmtHMS(s.outSec)}</td>
-          <td class="px-6 py-3 text-sm text-gray-700">${fmtHMS(totalProd)}</td>
-          <td class="px-6 py-3 text-sm ${offClass}">${fmtHMS(off)}</td>
-        `;
-        statsBody.appendChild(tr);
+        perAgent[agent] = {
+          calls: totalCalls,
+          inboundSec,
+          outboundSec,
+          talkSec: totalTalk
+        };
       });
-
-      metricsSourceNote.textContent =
-        agentFromUsers.size ? "Counts & handle times sourced from Users report where available; Calls report used to fill any gaps. Timeline always uses Calls."
-                            : "Users report not provided; metrics are derived from Calls only (best effort).";
-      renderDiff();
+      return perAgent;
     }
 
-    function renderDiff(){
-      const diffs = [];
-      const all = new Set([...agentFromCalls.keys(), ...agentFromUsers.keys()]);
-      all.forEach(name=>{
-        const c = agentFromCalls.get(name) || {inbound:0,outbound:0,inSec:0,outSec:0};
-        const u = agentFromUsers.get(name);
-        if (!u) return;
-        const checks = [
-          ["Inbound Calls", c.inbound, u.inbound, u.inbound - c.inbound, 1],
-          ["Outbound Calls", c.outbound, u.outbound, u.outbound - c.outbound, 1],
-          ["Inbound Handle (sec)", c.inSec, u.inSec, u.inSec - c.inSec, 5],
-          ["Outbound Handle (sec)", c.outSec, u.outSec, u.outSec - c.outSec, 5],
-        ];
-        checks.forEach(([label, cv, uv, delta, tol])=>{
-          if (Math.abs(delta) > tol) diffs.push({name,label,cv,uv,delta});
-        });
-      });
-
-      if (!diffs.length){
-        diffSection.classList.add('hidden');
-        diffBody.innerHTML = '';
-        diffCountBadge.textContent = "0 issues";
+    // ------------------------------
+    // RENDER: Heatmap
+    // ------------------------------
+    function renderHeatmap(heat) {
+      if (!heat || !heat.agents || heat.agents.length === 0) {
+        document.getElementById('heatmapCard').classList.add('hidden');
         return;
       }
-      diffSection.classList.remove('hidden');
-      diffBody.innerHTML = '';
-      diffs.sort((a,b)=>a.name.localeCompare(b.name) || a.label.localeCompare(b.label))
-           .forEach(d=>{
-             const tr=document.createElement('tr');
-             const color = d.delta>0?'text-emerald-700':'text-rose-700';
-             tr.innerHTML = `
-              <td class="px-4 py-2">${d.name}</td>
-              <td class="px-4 py-2">${d.label}</td>
-              <td class="px-4 py-2">${Number.isInteger(d.cv)?d.cv:fmtHMS(d.cv)}</td>
-              <td class="px-4 py-2">${Number.isInteger(d.uv)?d.uv:fmtHMS(d.uv)}</td>
-              <td class="px-4 py-2 ${color} font-semibold">${Number.isInteger(d.delta)?d.delta:fmtHMS(Math.abs(d.delta))}</td>`;
-             diffBody.appendChild(tr);
-           });
-      diffCountBadge.textContent = `${diffs.length} issues`;
+      const x = heat.hours.map(h => `${h.toString().padStart(2,'0')}:00`);
+      const y = heat.agents;
+      const z = heat.z;
+
+      const data = [{
+        x, y, z,
+        type: 'heatmap',
+        colorscale: 'YlGnBu',
+        hovertemplate: 'Agent: %{y}<br>Hour: %{x}<br>Calls: %{z}<extra></extra>'
+      }];
+
+      const layout = {
+        margin: { l: 140, r: 20, t: 10, b: 40 },
+        xaxis: { title: 'Hour of Day' },
+        yaxis: { title: 'Agent' }
+      };
+
+      Plotly.newPlot('heatmap', data, layout, {displayModeBar:false, responsive:true});
+      document.getElementById('heatmapCard').classList.remove('hidden');
     }
 
-    // ====== Heatmap (simple canvas, optional) ======
-    function drawHeatmap(){
-      if (!toggleHeatmap.checked){ heatmapSection.classList.add('hidden'); return; }
-      heatmapSection.classList.remove('hidden');
-      const ctx = heatmapCanvas.getContext('2d');
-      const W = heatmapCanvas.width = heatmapCanvas.clientWidth || 900;
-      const H = heatmapCanvas.height = 260;
+    // ------------------------------
+    // RENDER: Summary (from Users metrics)
+    // ------------------------------
+    function renderSummary(users) {
+      const body = document.getElementById('summaryBody');
+      body.innerHTML = '';
 
-      // bin counts by weekday(0-6) and hour(0-23)
-      const grid = Array.from({length:7},()=>Array(24).fill(0));
-      callData.forEach(c=>{
-        const d=c.startTime;
-        const wd=(d.getDay()+6)%7; // Mon=0…Sun=6
-        const hr=d.getHours();
-        if (wd>=0 && wd<7 && hr>=0 && hr<24) grid[wd][hr]+=1;
+      const agents = Object.keys(users).sort((a,b)=>a.localeCompare(b));
+      if (agents.length === 0) {
+        document.getElementById('summaryCard').classList.add('hidden');
+        return;
+      }
+
+      agents.forEach(a => {
+        const m = users[a];
+        const totalTalk = m.talkSec || (m.inboundSec + m.outboundSec);
+        const timeOff = Math.max(0, NET_WORKDAY_SECONDS - totalTalk);
+        const offClass = timeOff > IDLE_TIME_HIGHLIGHT_SECONDS ? 'text-red-700 font-semibold' : 'text-gray-700';
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="px-4 py-2 text-sm font-medium">${a}</td>
+          <td class="px-4 py-2 text-sm">${m.calls}</td>
+          <td class="px-4 py-2 text-sm text-emerald-600">${formatHMS(m.inboundSec)}</td>
+          <td class="px-4 py-2 text-sm text-indigo-600">${formatHMS(m.outboundSec)}</td>
+          <td class="px-4 py-2 text-sm">${formatHMS(totalTalk)}</td>
+          <td class="px-4 py-2 text-sm ${offClass}">${formatHMS(timeOff)}</td>
+        `;
+        body.appendChild(tr);
       });
-      const max = Math.max(1,...grid.flat());
-      // layout
-      const left=70, top=10, cellW=(W-left-10)/24, cellH=(H-40)/7;
-      ctx.clearRect(0,0,W,H);
-      ctx.font="12px Inter"; ctx.textBaseline="middle"; ctx.fillStyle="#111827";
-      const days=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
-      days.forEach((d,i)=>{ ctx.fillText(d, 10, top+cellH*i+cellH/2); });
-      for(let h=0; h<24; h++){ ctx.fillText((h+"").padStart(2,"0")+":00", left+h*cellW, H-18); }
 
-      for(let r=0;r<7;r++){
-        for(let c=0;c<24;c++){
-          const v = grid[r][c]/max;
-          const col = heatColor(v);
-          ctx.fillStyle = col;
-          ctx.fillRect(left+c*cellW, top+r*cellH, cellW-1, cellH-1);
+      document.getElementById('summaryCard').classList.remove('hidden');
+    }
+
+    // ------------------------------
+    // RENDER: Differences (only rows with diffs) — hidden by default
+    // ------------------------------
+    function renderDiff(calls, users) {
+      const diffBody = document.getElementById('diffBody');
+      const diffEmpty = document.getElementById('diffEmpty');
+      diffBody.innerHTML = '';
+
+      const allAgents = new Set([...Object.keys(calls||{}), ...Object.keys(users||{})]);
+      let shown = 0;
+
+      allAgents.forEach(a => {
+        const cm = (calls && calls[a]) ? calls[a] : { calls:0, talkSec:0 };
+        const um = (users && users[a]) ? users[a] : { calls:0, talkSec:0 };
+
+        const callDelta = (cm.calls||0) - (um.calls||0);
+        const timeDelta = (cm.talkSec||0) - (um.talkSec||0);
+
+        const pctCalls = (um.calls ? Math.abs(callDelta)/um.calls : (cm.calls ? 1 : 0));
+        const pctTime  = (um.talkSec ? Math.abs(timeDelta)/um.talkSec : (cm.talkSec ? 1 : 0));
+
+        const callsOff = Math.abs(callDelta) > 1 || pctCalls >= 0.05;
+        const timeOff  = Math.abs(timeDelta) > 60 || pctTime >= 0.05;
+
+        if (callsOff || timeOff) {
+          shown++;
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td class="px-4 py-2 text-sm font-medium">${a}</td>
+            <td class="px-4 py-2 text-sm">${cm.calls||0}</td>
+            <td class="px-4 py-2 text-sm">${um.calls||0}</td>
+            <td class="px-4 py-2 text-sm ${callsOff ? 'text-red-700 font-semibold' : ''}">${callDelta > 0 ? '+' : ''}${callDelta}</td>
+            <td class="px-4 py-2 text-sm">${formatHMS(cm.talkSec||0)}</td>
+            <td class="px-4 py-2 text-sm">${formatHMS(um.talkSec||0)}</td>
+            <td class="px-4 py-2 text-sm ${timeOff ? 'text-red-700 font-semibold' : ''}">
+              ${timeDelta>0?'+':''}${formatHMS(Math.abs(timeDelta)).replace(/^/, timeDelta>0?'+':'-').replace('+-','-')}
+            </td>
+          `;
+          diffBody.appendChild(tr);
         }
+      });
+
+      if (shown === 0) {
+        diffEmpty.classList.remove('hidden');
+      } else {
+        diffEmpty.classList.add('hidden');
       }
-      function heatColor(t){ // 0..1
-        const a = Math.max(0, Math.min(1,t));
-        const hue = 220 - a*220; // blue -> yellow
-        return `hsl(${hue} 85% ${20 + a*45}%)`;
+      // Keep the section hidden until manually toggled
+      document.getElementById('diffCard').classList.remove('hidden');
+      document.getElementById('diffPanel').classList.add('hidden');
+      document.getElementById('diffCard').setAttribute('aria-expanded', 'false');
+    }
+
+    // ------------------------------
+    // BUILD DASHBOARD
+    // ------------------------------
+    function buildDashboard() {
+      if (!callsRows || !usersRows) return;
+
+      const c = buildCallsMetrics(callsRows);
+      callsMetrics = c.perAgent;
+
+      usersMetrics = buildUsersMetrics(usersRows);
+
+      // header date summary
+      const header = document.getElementById('date-range-summary');
+      if (dateStrings.size) {
+        header.textContent = `Loaded data for: ${Array.from(dateStrings).sort().join(', ')}.`;
+      }
+
+      // render heatmap + summary + diffs
+      renderHeatmap(c.heatmap);
+      renderSummary(usersMetrics);
+      renderDiff(callsMetrics, usersMetrics);
+    }
+
+    // ------------------------------
+    // FILE LOADING (single area, multi-file)
+    // ------------------------------
+    function handleWorkbook(file) {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = e => {
+          try {
+            const data = new Uint8Array(e.target.result);
+            const wb = XLSX.read(data, { type: 'array' });
+
+            // If a workbook contains both sheets, we can populate both in one file.
+            // Otherwise, populate whichever exists.
+            const callsSheet = wb.Sheets['Calls'];
+            const usersSheet = wb.Sheets['Users'];
+
+            if (callsSheet) {
+              const rows = XLSX.utils.sheet_to_json(callsSheet, { defval: '' });
+              callsRows = rows; // last one wins if multiple provided (expected same day)
+              document.getElementById('callsStatus').textContent =
+                `Calls: ${file.name} (${rows.length} rows)`;
+            }
+            if (usersSheet) {
+              const rows = XLSX.utils.sheet_to_json(usersSheet, { defval: '' });
+              usersRows = rows;
+              document.getElementById('usersStatus').textContent =
+                `Users: ${file.name} (${rows.length} rows)`;
+            }
+
+            // Fallback: if sheet names differ, try first sheet as type hint by header presence
+            if (!callsSheet || !usersSheet) {
+              const first = wb.Sheets[wb.SheetNames[0]];
+              const headers = XLSX.utils.sheet_to_json(first, { header:1 })[0] || [];
+              const headerStr = headers.map(h=>String(h||'').toLowerCase()).join('|');
+
+              // Heuristics
+              const looksLikeCalls = /from name|to name|call start time|call length|result|call direction/.test(headerStr);
+              const looksLikeUsers = /total calls|inbound|outbound|handle time|talk time/.test(headerStr);
+
+              if (!callsSheet && looksLikeCalls) {
+                const rows = XLSX.utils.sheet_to_json(first, { defval: '' });
+                callsRows = rows;
+                document.getElementById('callsStatus').textContent =
+                  `Calls: ${file.name} (${rows.length} rows)`;
+              }
+              if (!usersSheet && looksLikeUsers) {
+                const rows = XLSX.utils.sheet_to_json(first, { defval: '' });
+                usersRows = rows;
+                document.getElementById('usersStatus').textContent =
+                  `Users: ${file.name} (${rows.length} rows)`;
+              }
+            }
+
+          } catch (err) {
+            console.error('Failed reading', file.name, err);
+          } finally {
+            resolve();
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      });
+    }
+
+    async function handleFiles(fileList) {
+      // Start fresh each time the user selects/drops
+      resetState();
+
+      const files = Array.from(fileList || []);
+      if (files.length === 0) return;
+
+      // Read all provided workbooks
+      for (const f of files) {
+        await handleWorkbook(f);
+      }
+
+      // Auto-build if both are present
+      if (callsRows && usersRows) {
+        buildDashboard();
+      } else {
+        // If either is missing, tell the user which one
+        if (!callsRows) {
+          document.getElementById('callsStatus').textContent =
+            'Calls: missing (please include the Calls file with sheet "Calls")';
+        }
+        if (!usersRows) {
+          document.getElementById('usersStatus').textContent =
+            'Users: missing (please include the Users file with sheet "Users")';
+        }
       }
     }
 
-    // ====== File handling ======
-    chooseFilesBtn.addEventListener('click',()=>fileInput.click());
-    toggleHeatmap.addEventListener('change', drawHeatmap);
-    zoomSlider.addEventListener('input', e=>renderTimeline(+e.target.value));
-    document.getElementById('applyFilter').addEventListener('click', ()=>renderTimeline(+zoomSlider.value));
-    document.getElementById('clearSelection').addEventListener('click', ()=>{
-      Array.from(document.querySelectorAll('#agent-list-panel input[type="checkbox"]')).forEach(cb=>cb.checked=false);
-      selectedAgents = [];
-      renderTimeline(+zoomSlider.value);
-    });
+    function wireSingleDrop() {
+      const zone = document.getElementById('drop-both');
+      const input = document.getElementById('fileBoth');
+      const btn = document.getElementById('btnBoth');
 
-    fileInput.addEventListener('change', async (e)=>{
-      fileBadges.innerHTML = '';
-      callsRows = usersRows = null;
+      btn.addEventListener('click', () => input.click());
+      input.addEventListener('change', e => handleFiles(e.target.files));
 
-      const files = Array.from(e.target.files || []);
-      if (!files.length){ addBadge("No files selected", false); return; }
+      ['dragenter','dragover','dragleave','drop'].forEach(ev => {
+        zone.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); }, false);
+      });
+      zone.addEventListener('drop', e => {
+        const files = e.dataTransfer.files;
+        handleFiles(files);
+      });
+      zone.addEventListener('click', () => input.click());
+    }
 
-      // Read all
-      await Promise.all(files.map(async (f)=>{
-        const buf = await f.arrayBuffer();
-        const wb = XLSX.read(new Uint8Array(buf), {type:'array'});
-        const callsSheet = wb.Sheets["Calls"];
-        const usersSheet = wb.Sheets["Users"];
-        if (callsSheet){
-          callsRows = XLSX.utils.sheet_to_json(callsSheet, {defval:""});
-          addBadge(`Calls ✓ (${f.name})`);
-        } else if (usersSheet){
-          usersRows = XLSX.utils.sheet_to_json(usersSheet, {defval:""});
-          addBadge(`Users ✓ (${f.name})`);
-        } else {
-          // try best-effort: pick first sheet but label unknown
-          const sheet = wb.Sheets[wb.SheetNames[0]];
-          const rows = XLSX.utils.sheet_to_json(sheet, {defval:""});
-          // detect by columns
-          const headers = new Set(Object.keys(rows[0]||{}).map(h=>h.toLowerCase()));
-          if (headers.has("from name") || headers.has("to name") || headers.has("call start time")){
-            callsRows = rows; addBadge(`Calls (auto) ✓ (${f.name})`);
-          } else if (headers.has("total handle time (in)") || headers.has("# inbound") || headers.has("# outbound")){
-            usersRows = rows; addBadge(`Users (auto) ✓ (${f.name})`);
-          } else {
-            addBadge(`Unrecognized: ${f.name}`, false);
-          }
-        }
-      }));
+    // ------------------------------
+    // COLLAPSE TOGGLE (differences)
+    // ------------------------------
+    function wireCollapse() {
+      const toggle = document.getElementById('diffToggle');
+      const panel = document.getElementById('diffPanel');
+      const container = document.getElementById('diffCard');
+      toggle.addEventListener('click', () => {
+        const open = !panel.classList.contains('hidden');
+        if (open) panel.classList.add('hidden');
+        else panel.classList.remove('hidden');
+        container.setAttribute('aria-expanded', (!open).toString());
+      });
+    }
 
-      // Build
-      if (!callsRows && !usersRows){ addBadge("No valid sheets found", false); return; }
-      if (callsRows){ parseCalls(callsRows); }
-      if (usersRows){ parseUsers(usersRows); }
-
-      // Build productivity (Users preferred)
-      buildProductivity();
-      populateAgentFilter();
-      renderTimeline(+zoomSlider.value);
-      drawHeatmap();
-
-      // date summary
-      if (callData.length){
-        const dates = Array.from(new Set(callData.map(c => c.startTime.toLocaleDateString()))).join(' & ');
-        document.getElementById('date-range-summary').textContent = `Loaded ${dates}. Time axis: 8:30 AM – 5:30 PM.`;
-      } else {
-        document.getElementById('date-range-summary').textContent = `Files loaded successfully.`;
-      }
-    });
+    // ------------------------------
+    // INIT
+    // ------------------------------
+    (function init(){
+      wireSingleDrop();
+      wireCollapse();
+    })();
   </script>
 </body>
 </html>
