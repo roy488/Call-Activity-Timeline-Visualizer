@@ -4,13 +4,18 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Agent Call Activity Timeline</title>
+
+  <!-- Tailwind -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- XLSX reader -->
+  <!-- SheetJS for XLSX parsing -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- Plotly for Heatmap -->
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
     body { font-family: 'Inter', sans-serif; background-color: #f7f9fb; }
-    .timeline-container { overflow-x: scroll; width: 100%; }
+    .timeline-container { overflow-x: auto; width: 100%; }
     .timeline-chart { position: relative; min-width: 1500px; }
     .agent-track { height: 35px; border-bottom: 1px solid #e5e7eb; position: relative; }
     .call-bar { position: absolute; height: 25px; top: 5px; border-radius: 4px; transition: transform 0.1s; cursor: pointer; }
@@ -23,658 +28,779 @@
       transform: translate(-50%, -10px); min-width: 200px;
     }
     .show-tooltip { opacity: 1; transform: translate(-50%, -40px); }
-    #agent-list-panel { max-height: 150px; overflow-y: auto; padding: 8px; border: 1px solid #e2e8f0; border-radius: 6px; background-color: #f8fafc; width: 220px; }
+    #agent-list-panel { max-height: 180px; overflow-y: auto; padding: 8px; border: 1px solid #e2e8f0; border-radius: 6px; background-color: #f8fafc; width: 220px; }
     .agent-checkbox-item { display: flex; align-items: center; padding: 2px 0; font-size: 0.9rem; cursor: pointer; }
     .agent-checkbox-item:hover { background-color: #eff6ff; border-radius: 4px; }
     .agent-label-row { height: 35px; line-height: 35px; border-bottom: 1px solid #e5e7eb; }
     #agent-labels-header { height: 36px; }
-    .metric-sub { font-size:.75rem; color:#6b7280 }
+    .badge { font-size: 12px; padding: 2px 8px; border-radius: 9999px; }
   </style>
 </head>
 <body class="p-8">
 
-<div id="app" class="max-w-7xl mx-auto">
-  <header class="mb-8 p-4 bg-white rounded-xl shadow-lg border-b-4 border-emerald-500">
-    <h1 class="text-3xl font-bold text-gray-800">Agent Call Activity Timeline</h1>
-    <p id="date-range-summary" class="text-gray-500 mt-1">Load a RingCentral XLSX Calls file to begin analysis.</p>
-  </header>
+  <div class="max-w-7xl mx-auto">
+    <!-- Header -->
+    <header class="mb-8 p-4 bg-white rounded-xl shadow-lg border-b-4 border-emerald-500">
+      <div class="flex items-center justify-between">
+        <h1 class="text-3xl font-bold text-gray-800">Agent Call Activity Timeline</h1>
+        <div class="flex gap-2">
+          <span id="badgeCalls" class="badge bg-gray-200 text-gray-700">Calls: not loaded</span>
+          <span id="badgeUsers" class="badge bg-gray-200 text-gray-700">Users: not loaded</span>
+        </div>
+      </div>
+      <p id="date-range-summary" class="text-gray-500 mt-1">
+        Load the RingCentral <strong>Calls</strong> XLSX and <strong>Users</strong> XLSX to begin.
+      </p>
+    </header>
 
-  <div class="flex justify-between items-start mb-6 p-4 bg-white rounded-xl shadow">
-    <div class="flex items-center space-x-6">
-      <div class="flex flex-col">
-        <label class="text-sm font-medium text-gray-700">Zoom Level:</label>
-        <input type="range" id="zoom-slider" min="100" max="400" value="100"
-               class="w-48 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer range-sm">
+    <!-- Controls + Upload -->
+    <div class="flex justify-between items-start mb-6 p-4 bg-white rounded-xl shadow">
+      <div class="flex items-center space-x-6">
+        <div>
+          <label class="text-sm font-medium text-gray-700">Zoom Level:</label>
+          <input type="range" id="zoom-slider" min="100" max="400" value="100"
+                 class="w-48 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer range-sm">
+        </div>
+
+        <div>
+          <label class="text-sm font-medium text-gray-700">Comparison:</label>
+          <button id="toggleCompare" class="ml-2 px-3 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition text-sm">
+            Show Calls vs Users
+          </button>
+        </div>
+      </div>
+
+      <div class="flex flex-col items-end">
+        <div class="flex items-center mb-1">
+          <label class="text-sm font-medium text-gray-700 mr-2">Filter Agents:</label>
+          <span id="filter-feedback" class="text-xs font-semibold px-2 py-1 rounded-full bg-emerald-100 text-emerald-700">0 Agents Selected</span>
+        </div>
+        <div id="agent-list-panel">
+          <p class="text-gray-500 text-center text-sm">Upload data to load agents.</p>
+        </div>
+        <div class="flex space-x-2 mt-2">
+          <button id="applyFilter" class="px-3 py-2 bg-emerald-500 text-white rounded-md hover:bg-emerald-600 transition text-sm">Apply Filter</button>
+          <button id="clearSelection" class="px-3 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition text-sm">Clear</button>
+        </div>
       </div>
     </div>
 
-    <div class="flex flex-col items-end">
-      <div class="flex items-center mb-1">
-        <label class="text-sm font-medium text-gray-700 mr-2">Filter Agents:</label>
-        <span id="filter-feedback"
-              class="text-xs font-semibold px-2 py-1 rounded-full bg-emerald-100 text-emerald-700">0 Agents Selected</span>
+    <!-- Upload Zone -->
+    <div id="drop-area" class="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center bg-white hover:border-emerald-400 transition cursor-pointer mb-8">
+      <input type="file" id="fileInput" accept=".xlsx,.xls" class="hidden" multiple>
+      <p class="text-lg font-medium text-gray-700">📄 Drop <strong>both</strong> RingCentral XLSX files here (Calls + Users) <span class="text-gray-400">or click to choose</span></p>
+      <p class="text-sm text-gray-500 mt-1">
+        Calls heatmap/timeline use the <strong>Calls</strong> sheet. Productivity metrics use the <strong>Users</strong> sheet.
+      </p>
+    </div>
+
+    <!-- HEATMAP -->
+    <section id="heatmap-section" class="mb-8 p-4 bg-white rounded-xl shadow-lg border">
+      <h2 class="text-2xl font-semibold text-gray-800 mb-4">Heatmap — Call Density (by Hour x Day)</h2>
+      <div id="heatmap" style="width:100%;height:420px;"></div>
+      <p class="text-xs text-gray-500 mt-2">Heatmap is built from the CALLS file using session-level attribution. Agent filter applies.</p>
+    </section>
+
+    <!-- TIMELINE -->
+    <section id="visualization-area" class="mb-8 flex bg-white rounded-xl shadow-lg overflow-hidden border">
+      <div id="agent-names-column" class="flex-shrink-0 w-56 border-r bg-gray-50">
+        <div id="agent-labels-header" class="px-3 text-xs font-semibold text-gray-600 uppercase border-b border-gray-300 flex items-center">
+          Agent Name
+        </div>
+        <div id="agent-label-container"></div>
       </div>
-      <div id="agent-list-panel">
-        <p class="text-gray-500 text-center text-sm">Upload data to load agents.</p>
+      <div id="timeline-scroll-container" class="timeline-container relative">
+        <div id="timeline-chart" class="timeline-chart"></div>
       </div>
-      <div class="flex space-x-2 mt-2">
-        <button id="applyFilter"
-                class="px-3 py-2 bg-emerald-500 text-white rounded-md hover:bg-emerald-600 transition font-medium text-sm">
-          Apply Filter
-        </button>
-        <button id="clearSelection"
-                class="px-3 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition font-medium text-sm">
-          Clear Selection
-        </button>
+    </section>
+
+    <!-- Tooltip for timeline -->
+    <div id="call-tooltip" class="tooltip"></div>
+
+    <!-- SUMMARY (Users authoritative) -->
+    <section id="stats-summary-area" class="mt-8 p-6 bg-white rounded-xl shadow-lg border-t-4 border-emerald-500" style="display:none;">
+      <h2 class="text-2xl font-semibold text-gray-700 mb-4">Daily Productivity Metrics (Users file, 8-Hour Net)</h2>
+      <div class="overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50">
+            <tr>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Agent Name</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Calls</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Inbound Handle Time</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Outbound Handle Time</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Productive Time</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-red-600 uppercase tracking-wider">Time Off Phone (8h)</th>
+            </tr>
+          </thead>
+          <tbody id="stats-table-body" class="bg-white divide-y divide-gray-200"></tbody>
+        </table>
       </div>
-    </div>
-  </div>
+    </section>
 
-  <div id="drop-area"
-       class="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center bg-white hover:border-emerald-400 transition cursor-pointer mb-8">
-    <input type="file" id="fileInput" accept=".xlsx,.xls" class="hidden">
-    <p class="text-lg font-medium text-gray-700">**DROP RINGCENTRAL XLSX CALLS FILE HERE**</p>
-    <p class="text-sm text-gray-500 mt-1">Expects the <strong>Multi-Day Agent Stats – Calls</strong> XLSX export (uses the “Calls” sheet).</p>
-    <div id="loadFeedback" class="text-xs text-gray-500 mt-2"></div>
-  </div>
-
-  <!-- Top metrics to show both counting methods -->
-  <div id="top-metrics" class="grid grid-cols-2 gap-4 mb-6 hidden">
-    <div class="bg-white rounded-xl shadow p-4">
-      <div class="text-sm text-gray-600 font-medium">RC Total Calls (All legs)</div>
-      <div id="metric-rc-count" class="text-2xl font-bold text-gray-900">0</div>
-      <div class="metric-sub">Matches RingCentral “Total Calls” by counting every row an agent touched.</div>
-    </div>
-    <div class="bg-white rounded-xl shadow p-4">
-      <div class="text-sm text-gray-600 font-medium">Productive Time (All agents)</div>
-      <div id="metric-prod-time" class="text-2xl font-bold text-gray-900">0h 0m</div>
-      <div class="metric-sub">Sum of Connected / Answered / Transferred (+ Outbound attempts ≥5s for bars only).</div>
-    </div>
-  </div>
-
-  <div id="visualization-area" class="flex bg-white rounded-xl shadow-lg overflow-hidden border">
-    <div id="agent-names-column" class="flex-shrink-0 w-48 border-r bg-gray-50">
-      <div id="agent-labels-header"
-           class="px-3 text-xs font-semibold text-gray-600 uppercase border-b border-gray-300 flex items-center">
-        Agent Name
+    <!-- Discrepancy Checker (toggle) -->
+    <section id="compare-section" class="mt-8 p-6 bg-white rounded-xl shadow-lg border hidden">
+      <h2 class="text-2xl font-semibold text-gray-700 mb-4">Calls vs Users – Discrepancy Checker</h2>
+      <p class="text-sm text-gray-500 mb-4">Shows differences after attribution. Positive Δ means Calls > Users.</p>
+      <div class="overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200 text-sm">
+          <thead class="bg-gray-50">
+            <tr>
+              <th class="px-4 py-2 text-left font-medium text-gray-500">Agent</th>
+              <th class="px-4 py-2 text-left font-medium text-gray-500">Users Total Calls</th>
+              <th class="px-4 py-2 text-left font-medium text-gray-500">Calls Sessions (attr)</th>
+              <th class="px-4 py-2 text-left font-medium text-gray-500">Δ Calls</th>
+              <th class="px-4 py-2 text-left font-medium text-gray-500">Users In (H:M:S)</th>
+              <th class="px-4 py-2 text-left font-medium text-gray-500">Calls In (H:M:S)</th>
+              <th class="px-4 py-2 text-left font-medium text-gray-500">Δ In (H:M:S)</th>
+              <th class="px-4 py-2 text-left font-medium text-gray-500">Users Out (H:M:S)</th>
+              <th class="px-4 py-2 text-left font-medium text-gray-500">Calls Out (H:M:S)</th>
+              <th class="px-4 py-2 text-left font-medium text-gray-500">Δ Out (H:M:S)</th>
+            </tr>
+          </thead>
+          <tbody id="compare-table-body" class="bg-white divide-y divide-gray-200"></tbody>
+        </table>
       </div>
-      <div id="agent-label-container"></div>
-    </div>
-
-    <div id="timeline-scroll-container" class="timeline-container relative">
-      <div id="timeline-chart" class="timeline-chart"></div>
-    </div>
+    </section>
   </div>
 
-  <div id="call-tooltip" class="tooltip"></div>
+  <script>
+    // ======= CONSTANTS =======
+    const VALID_RESULTS_CONNECTED = ["Connected", "Answered"];
+    const VALID_RESULTS_TRANSFERRED = ["Transferred", "Transferred / To Voicemail"];
 
-  <div id="stats-summary-area"
-       class="mt-8 p-6 bg-white rounded-xl shadow-lg border-t-4 border-emerald-500"
-       style="display: none;">
-    <h2 class="text-2xl font-semibold text-gray-700 mb-4">Daily Productivity Metrics (8-Hour Net)</h2>
-    <div class="overflow-x-auto">
-      <table class="min-w-full divide-y divide-gray-200">
-        <thead class="bg-gray-50">
-        <tr>
-          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Agent Name</th>
-          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">RC Total Calls</th>
-          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Inbound Handle Time</th>
-          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Outbound Handle Time</th>
-          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Productive Time</th>
-          <th class="px-6 py-3 text-left text-xs font-medium text-red-600 uppercase tracking-wider">Time Off Phone (8h)</th>
-        </tr>
-        </thead>
-        <tbody id="stats-table-body" class="bg-white divide-y divide-gray-200"></tbody>
-      </table>
-    </div>
-  </div>
-</div>
+    const AGENT_LIST = [
+      "ALEJANDRO SATUNINO CAMPOS-PEREZ", "AUSTIN MITCHELL", "Brady Olson", "Brandon Ridder",
+      "BRANDON RUSSOM", "BRENDAN BOH", "Cullen Manley", "David Ryan", "DOMINIQUE GONZALES",
+      "Duncan Cannon", "Hayden Holcomb", "Joel Jubber", "John Udick", "KIMBERLY RAMIREZ",
+      "MARCOS HERNANDEZ", "MOUNIR ROSENDO", "Natasha Fowler", "Nathan Hill", "Olivia Kasten",
+      "Tammy Lummus", "Wanda Scott"
+    ];
+    const AGENT_MAP = new Map(AGENT_LIST.map(n => [n.toUpperCase(), n]));
+    const DIRECT_ALIAS_MAP = { "NATE":"Nathan Hill" }; // extend as needed
 
-<script>
-  // --- Constants ---
-  const VALID_RESULTS_CONNECTED = ["Connected", "Answered", "Call connected"]; // broadened
-  const VALID_RESULTS_TRANSFERRED = ["Transferred", "Transferred / To Voicemail"];
+    // Workday window
+    const START_OF_DAY_SECONDS = 8.5 * 3600; // 8:30
+    const END_OF_DAY_SECONDS   = 17.5 * 3600; // 5:30
+    const NET_WORKDAY_SECONDS  = 8 * 3600;
+    const IDLE_TIME_HIGHLIGHT_SECONDS = 4 * 3600;
 
-  // --- Agents ---
-  const AGENT_LIST = [
-    "ALEJANDRO SATUNINO CAMPOS-PEREZ","AUSTIN MITCHELL","Brady Olson","Brandon Ridder",
-    "BRANDON RUSSOM","BRENDAN BOH","Cullen Manley","David Ryan","DOMINIQUE GONZALES",
-    "Duncan Cannon","Hayden Holcomb","Joel Jubber","John Udick","KIMBERLY RAMIREZ",
-    "MARCOS HERNANDEZ","MOUNIR ROSENDO","Natasha Fowler","Nathan Hill","Olivia Kasten",
-    "Tammy Lummus","Wanda Scott"
-  ];
-  const AGENT_MAP = new Map(AGENT_LIST.map(n => [n.toUpperCase(), n]));
-  // extra aliases that commonly appear on “Direct” legs/nicknames
-  const DIRECT_ALIAS_MAP = {
-    "NATE": "Nathan Hill",
-    "NATHAN": "Nathan Hill",
-    "ALEX": "ALEJANDRO SATUNINO CAMPOS-PEREZ",
-  };
+    // ======= STATE =======
+    let callsRows = null;    // raw rows from Calls sheet
+    let usersRows = null;    // raw rows from Users sheet
+    let callData = [];       // attributed calls for timeline
+    let agentProductivityCalls = new Map(); // from Calls
+    let agentUsersSummary = new Map();      // from Users
+    let agentTrackMap = {};
+    let selectedAgents = [];
+    let totalTimeSeconds = END_OF_DAY_SECONDS - START_OF_DAY_SECONDS;
+    let timeMin = START_OF_DAY_SECONDS;
+    let timeMax = END_OF_DAY_SECONDS;
 
-  // --- Workday window ---
-  const START_OF_DAY_SECONDS = 8.5 * 3600; // 8:30 AM
-  const END_OF_DAY_SECONDS   = 17.5 * 3600; // 5:30 PM
-  const NET_WORKDAY_SECONDS  = 8 * 3600;
-  const IDLE_TIME_HIGHLIGHT_SECONDS = 4 * 3600;
+    // ======= DOM =======
+    const timelineChart = document.getElementById('timeline-chart');
+    const agentLabelContainer = document.getElementById('agent-label-container');
+    const timelineScrollContainer = document.getElementById('timeline-scroll-container');
+    const tooltip = document.getElementById('call-tooltip');
+    const zoomSlider = document.getElementById('zoom-slider');
+    const filterFeedback = document.getElementById('filter-feedback');
+    const dropArea = document.getElementById('drop-area');
+    const fileInput = document.getElementById('fileInput');
+    const badgeCalls = document.getElementById('badgeCalls');
+    const badgeUsers = document.getElementById('badgeUsers');
+    const compareSection = document.getElementById('compare-section');
+    const compareBody = document.getElementById('compare-table-body');
+    const toggleCompareBtn = document.getElementById('toggleCompare');
 
-  // --- State ---
-  let callData = [];
-  let agentTrackMap = {};
-  // agentStats: seeded for all agents
-  let agentProductivity = new Map();
-  // RC counting map (counts all legs)
-  let agentRcCounts = new Map();
+    // ======= UTILITIES =======
+    const callLengthToSeconds = (val) => {
+      if (val == null) return 0;
+      if (val instanceof Date) return val.getHours()*3600 + val.getMinutes()*60 + val.getSeconds();
+      if (typeof val === 'number') {
+        if (val > 0 && val < 1) return Math.round(val * 24 * 3600); // Excel fraction of day
+        return Math.round(val);
+      }
+      if (typeof val === 'string') {
+        const parts = val.split(':').map(p => parseInt(p, 10));
+        if (parts.length === 3 && parts.every(v => !isNaN(v))) return parts[0]*3600 + parts[1]*60 + parts[2];
+        if (parts.length === 2 && parts.every(v => !isNaN(v))) return parts[0]*60 + parts[1];
+      }
+      return 0;
+    };
 
-  let totalTimeSeconds = END_OF_DAY_SECONDS - START_OF_DAY_SECONDS;
-  let timeMin = START_OF_DAY_SECONDS;
+    const normalizeAgent = (fullName) => {
+      if (!fullName || typeof fullName !== 'string') return null;
+      let cleaned = fullName;
+      if (cleaned.includes(' - ')) cleaned = cleaned.split(' - ')[0];
+      if (cleaned.includes('(')) cleaned = cleaned.split('(')[0];
+      cleaned = cleaned.trim();
+      if (!cleaned) return null;
+      const up = cleaned.toUpperCase();
 
-  let selectedAgents = [];
+      for (const [U, orig] of AGENT_MAP.entries()) {
+        if (up === U || up.startsWith(U) || U.includes(up) || up.includes(U)) return orig;
+      }
 
-  // --- DOM ---
-  const timelineChart = document.getElementById('timeline-chart');
-  const agentLabelContainer = document.getElementById('agent-label-container');
-  const timelineScrollContainer = document.getElementById('timeline-scroll-container');
-  const tooltip = document.getElementById('call-tooltip');
-  const zoomSlider = document.getElementById('zoom-slider');
-  const filterFeedback = document.getElementById('filter-feedback');
-  const dropArea = document.getElementById('drop-area');
-  const fileInput = document.getElementById('fileInput');
-  const loadFeedback = document.getElementById('loadFeedback');
-  const topMetrics = document.getElementById('top-metrics');
-  const metricRcCount = document.getElementById('metric-rc-count');
-  const metricProdTime = document.getElementById('metric-prod-time');
+      // "<FirstName> Direct ..." pattern
+      const idx = up.indexOf(' DIRECT');
+      if (idx > 0) {
+        const before = up.slice(0, idx).trim();
+        const maybeFirst = before.split(/\s+/).pop() || '';
+        if (DIRECT_ALIAS_MAP[maybeFirst]) return DIRECT_ALIAS_MAP[maybeFirst];
+        for (const [U, orig] of AGENT_MAP.entries()) {
+          const first = U.split(' ')[0];
+          if (first === maybeFirst) return orig;
+        }
+      }
 
-  // --- Utils ---
-  const callLengthToSeconds = (val) => {
-    if (val == null) return 0;
-    if (val instanceof Date) return val.getHours()*3600 + val.getMinutes()*60 + val.getSeconds();
-    if (typeof val === 'number') {
-      if (val > 0 && val < 1) return Math.round(val * 24 * 3600); // Excel fraction of day
-      return Math.round(val);
-    }
-    if (typeof val === 'string') {
-      const parts = val.split(':').map(p => parseInt(p,10));
-      if (parts.length === 3 && parts.every(n => !isNaN(n))) return parts[0]*3600 + parts[1]*60 + parts[2];
-      if (parts.length === 2 && parts.every(n => !isNaN(n))) return parts[0]*60 + parts[1];
-    }
-    return 0;
-  };
+      // last-name-only fallback
+      for (const [U, orig] of AGENT_MAP.entries()) {
+        const last = U.split(' ').slice(-1)[0];
+        if (last && up.includes(last)) return orig;
+      }
+      return null;
+    };
 
-  const extractAgentName = (fullName) => {
-    if (!fullName || typeof fullName !== 'string') return null;
-    let cleaned = fullName;
-    if (cleaned.includes(' - ')) cleaned = cleaned.split(' - ')[0];
-    if (cleaned.includes('(')) cleaned = cleaned.split('(')[0];
-    cleaned = cleaned.trim();
-    if (!cleaned) return null;
+    const timeToSeconds = (date) => (date.getHours()*3600 + date.getMinutes()*60 + date.getSeconds());
+    const formatTimeLabel = (seconds) => new Date(0,0,0,0,0,seconds).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:true});
+    const fmtHMS = (sec) => {
+      sec = Math.round(Number(sec||0));
+      const h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec%60;
+      const hD = h>0?`${h}h `:"", mD = m>0?`${m}m `:"", sD = (s>0 || (h===0&&m===0))?`${s}s`:"";
+      return (hD+mD+sD).trim() || '0s';
+    };
 
-    const up = cleaned.toUpperCase();
+    // ======= CORE LOADING =======
+    function processWorkbook(fileName, workbook) {
+      // Find Calls or Users sheet
+      let isCalls = !!workbook.Sheets["Calls"];
+      let isUsers = !!workbook.Sheets["Users"];
 
-    // exact / contains
-    for (const [upperTarget, originalName] of AGENT_MAP.entries()) {
-      if (up === upperTarget || up.startsWith(upperTarget) || upperTarget.includes(up) || up.includes(upperTarget)) {
-        return originalName;
+      if (isCalls) {
+        const rows = XLSX.utils.sheet_to_json(workbook.Sheets["Calls"], { defval: "" });
+        callsRows = rows;
+        badgeCalls.className = "badge bg-emerald-100 text-emerald-700";
+        badgeCalls.textContent = "Calls: loaded";
+      } else if (isUsers) {
+        const rows = XLSX.utils.sheet_to_json(workbook.Sheets["Users"], { defval: "" });
+        usersRows = rows;
+        badgeUsers.className = "badge bg-emerald-100 text-emerald-700";
+        badgeUsers.textContent = "Users: loaded";
+      } else {
+        // fallback: guess by first sheet name
+        const firstSheet = workbook.SheetNames[0];
+        if (firstSheet) {
+          const rows = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet], { defval: "" });
+          // Heuristic: if it has "Call Direction" and "Session Id", assume Calls
+          const hasCallsCols = rows.length && ("Call Direction" in rows[0] || "Session Id" in rows[0]);
+          if (hasCallsCols) {
+            callsRows = rows;
+            badgeCalls.className = "badge bg-emerald-100 text-emerald-700";
+            badgeCalls.textContent = "Calls: loaded (guessed)";
+          } else {
+            usersRows = rows;
+            badgeUsers.className = "badge bg-emerald-100 text-emerald-700";
+            badgeUsers.textContent = "Users: loaded (guessed)";
+          }
+        }
       }
     }
 
-    // "<First> Direct ..." nicknames
-    const directIdx = up.indexOf(' DIRECT');
-    if (directIdx > 0) {
-      const maybeFirst = up.slice(0, directIdx).trim().split(/\s+/).pop();
-      if (DIRECT_ALIAS_MAP[maybeFirst]) return DIRECT_ALIAS_MAP[maybeFirst];
-      for (const [upperTarget, originalName] of AGENT_MAP.entries()) {
-        const first = upperTarget.split(' ')[0];
-        if (first === maybeFirst) return originalName;
-      }
-    }
-
-    // last name only
-    for (const [upperTarget, originalName] of AGENT_MAP.entries()) {
-      const last = upperTarget.split(' ').slice(-1)[0];
-      if (last && up.includes(last)) return originalName;
-    }
-
-    return null;
-  };
-
-  const timeToSeconds = (date) => date.getHours()*3600 + date.getMinutes()*60 + date.getSeconds();
-
-  const formatTime = (seconds) => {
-    const date = new Date(0, 0, 0, 0, 0, seconds);
-    return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
-  };
-
-  const formatDurationHms = (d) => {
-    d = Math.round(Number(d));
-    const h = Math.floor(d / 3600);
-    const m = Math.floor((d % 3600) / 60);
-    const s = d % 60;
-    const hDisplay = h > 0 ? `${h}h ` : "";
-    const mDisplay = m > 0 ? `${m}m ` : "";
-    const sDisplay = s > 0 || (h === 0 && m === 0) ? `${s}s` : "";
-    return (hDisplay + mDisplay + sDisplay).trim() || '0s';
-  };
-
-  const formatDurationMs = (seconds) => `${Math.floor(seconds/60)}m ${seconds%60}s`;
-
-  // seed maps so agents with 0 appear
-  const seedAgents = () => {
-    agentProductivity = new Map();
-    agentRcCounts = new Map();
-    AGENT_LIST.forEach(name => {
-      agentProductivity.set(name, {
-        inboundTime: 0,
-        outboundTime: 0,
-        totalCalls: 0,     // RC-style count (all legs)
-        calls: []          // productive / visualized bars
+    function handleFiles(files) {
+      if (!files || !files.length) return;
+      const arr = Array.from(files);
+      let processed = 0;
+      arr.forEach(file => {
+        const reader = new FileReader();
+        reader.onload = e => {
+          const data = new Uint8Array(e.target.result);
+          const wb = XLSX.read(data, { type: 'array' });
+          processWorkbook(file.name, wb);
+          processed++;
+          if (processed === arr.length) onDataReady();
+        };
+        reader.readAsArrayBuffer(file);
       });
-      agentRcCounts.set(name, { inbound:0, outbound:0, total:0 }); // explicit dir counts if you need later
-    });
-  };
+    }
 
-  // --- Core parse of XLSX rows ---
-  const parseRows = (rows) => {
-    seedAgents();
-    callData = [];
+    // ======= ATTRIBUTION & BUILDERS =======
+    function buildAttributedCalls() {
+      if (!callsRows) return;
 
-    let minTimeRaw = Infinity;
-    let totalProdSecondsAll = 0;
+      // Initial per-row attribution
+      const rows = callsRows.map(r => {
+        const agent = normalizeAgent(r["From Name"]) || normalizeAgent(r["To Name"]);
+        const sess = r["Session Id"];
+        return { ...r, _ATTR_AGENT: agent || null, _SESSION: sess || null };
+      });
 
-    rows.forEach((row) => {
-      const fromName = row["From Name"];
-      const toName = row["To Name"];
-      const result = row["Result"];
-      const direction = row["Call Direction"];
-      const startTimeRaw = row["Call Start Time"];
-      const callLengthVal = row["Call Length"];
-
-      let agentName = extractAgentName(fromName) || extractAgentName(toName);
-      if (!agentName) return;
-
-      // --- RC-style counting: count EVERY row the agent touches ---
-      const rc = agentRcCounts.get(agentName);
-      if (direction === "Inbound") rc.inbound += 1;
-      else if (direction === "Outbound") rc.outbound += 1;
-      rc.total += 1;
-
-      const stats = agentProductivity.get(agentName);
-      stats.totalCalls = rc.total; // keep table’s “RC Total Calls” in sync
-
-      // --- Productive/visualized filter ---
-      const callLength = callLengthToSeconds(callLengthVal);
-      if (!callLength || callLength === 0) return; // zero-length contributes no time/bars
-
-      let isValidCall = false;
-      let callType = 'Attempted';
-
-      if (VALID_RESULTS_CONNECTED.includes(result)) {
-        isValidCall = true;
-        callType = direction === 'Outbound' ? 'ConnectedOutbound' : 'ConnectedInbound';
-      } else if (VALID_RESULTS_TRANSFERRED.includes(result)) {
-        isValidCall = true;
-        callType = 'Transferred';
-      } else if (direction === 'Outbound' && callLength >= 5) {
-        // keep these *only* for visualization and not for productive sums
-        isValidCall = true;
-        callType = 'OutboundAttempt';
+      // Find sessions with exactly one unique agent on any leg
+      const bySession = new Map();
+      for (const r of rows) {
+        if (!bySession.has(r._SESSION)) bySession.set(r._SESSION, new Set());
+        if (r._ATTR_AGENT) bySession.get(r._SESSION).add(r._ATTR_AGENT);
+      }
+      const singleAgentSessionMap = new Map();
+      for (const [sid, set] of bySession.entries()) {
+        if (set.size === 1) singleAgentSessionMap.set(sid, Array.from(set)[0]);
       }
 
-      if (!isValidCall) return;
+      // Final attribution: prefer row agent; else session agent (if single-agent session)
+      const attributed = [];
+      for (const r of rows) {
+        const agent = r._ATTR_AGENT || singleAgentSessionMap.get(r._SESSION) || null;
+        if (!agent) continue;
 
-      // parse start time
-      let startTime;
-      if (startTimeRaw instanceof Date) startTime = startTimeRaw;
-      else startTime = new Date(startTimeRaw);
-      if (isNaN(startTime.getTime())) return;
+        // parse start time robustly
+        let start = r["Call Start Time"];
+        let startDate = (start instanceof Date) ? start : new Date(start);
+        if (isNaN(startDate.getTime())) continue;
 
-      const startSeconds = timeToSeconds(startTime);
-      const endSeconds = startSeconds + callLength;
-      minTimeRaw = Math.min(minTimeRaw, startSeconds);
+        const callLenSec = callLengthToSeconds(r["Call Length"]);
+        if (!callLenSec) continue;
 
-      const call = {
-        agentName, startTime, startSeconds, endSeconds,
-        callLength, direction, result, callType
+        const startSeconds = timeToSeconds(startDate);
+        const endSeconds = startSeconds + callLenSec;
+
+        // classify type
+        const direction = r["Call Direction"];
+        const result = r["Result"];
+        let callType = 'Attempted';
+        let isValid = false;
+        if (VALID_RESULTS_CONNECTED.includes(result)) {
+          isValid = true;
+          callType = direction === 'Outbound' ? 'ConnectedOutbound' : 'ConnectedInbound';
+        } else if (VALID_RESULTS_TRANSFERRED.includes(result)) {
+          isValid = true;
+          callType = 'Transferred';
+        } else if (direction === 'Outbound' && callLenSec >= 5) {
+          isValid = true;
+          callType = 'OutboundAttempt';
+        }
+        if (!isValid) continue;
+
+        attributed.push({
+          agentName: agent,
+          startTime: startDate,
+          startSeconds, endSeconds,
+          callLength: callLenSec,
+          direction, result, callType,
+          sessionId: r._SESSION || null
+        });
+      }
+
+      // Sort + bucket per agent for timeline
+      attributed.sort((a,b)=>a.startSeconds - b.startSeconds);
+      callData = attributed;
+
+      // Build agentProductivityCalls (from calls, mainly for inbound/outbound split on the chart)
+      agentProductivityCalls = new Map();
+      for (const call of attributed) {
+        if (!agentProductivityCalls.has(call.agentName)) {
+          agentProductivityCalls.set(call.agentName, { inboundTime:0, outboundTime:0, totalCalls:0, calls:[] });
+        }
+        const s = agentProductivityCalls.get(call.agentName);
+        s.totalCalls += 1;
+        if (call.callType === 'ConnectedInbound' || call.callType === 'Transferred') {
+          s.inboundTime += call.callLength;
+        } else {
+          s.outboundTime += call.callLength;
+        }
+        s.calls.push(call);
+      }
+    }
+
+    function buildUsersSummary() {
+      if (!usersRows) return;
+      agentUsersSummary = new Map();
+
+      const toSec = (v) => {
+        if (v == null) return 0;
+        if (typeof v === 'number') {
+          if (v > 0 && v < 1) return Math.round(v * 24 * 3600);
+          return Math.round(v);
+        }
+        if (v instanceof Date) return v.getHours()*3600 + v.getMinutes()*60 + v.getSeconds();
+        if (typeof v === 'string') return callLengthToSeconds(v);
+        return 0;
       };
-      callData.push(call);
-      stats.calls.push(call);
 
-      // add productive time (exclude bare attempts)
-      if (callType === 'ConnectedInbound' || callType === 'Transferred') {
-        stats.inboundTime += callLength;
-        totalProdSecondsAll += callLength;
-      } else if (callType === 'ConnectedOutbound') {
-        stats.outboundTime += callLength;
-        totalProdSecondsAll += callLength;
+      for (const r of usersRows) {
+        const nameRaw = r["Name"];
+        const agent = nameRaw ? nameRaw.toString().trim() : "";
+        if (!agent) continue;
+
+        // Build times from Users columns
+        const totalCalls = Number(r["Total Calls"]||0);
+        const inTime = toSec(r["Total Handle Time (in)"]);
+        const outTime = toSec(r["Total Handle Time (out)"]);
+        const totTime = toSec(r["Total Handle Time"]);
+
+        agentUsersSummary.set(agent, {
+          totalCalls,
+          inboundTime: inTime,
+          outboundTime: outTime,
+          totalTime: totTime
+        });
       }
-    });
-
-    // sort calls globally and per agent
-    callData.sort((a,b) => a.startSeconds - b.startSeconds);
-    agentProductivity.forEach(s => s.calls.sort((a,b) => a.startSeconds - b.startSeconds));
-
-    // map agents to track indices (show everyone, even with 0)
-    const sortedAgentNames = [...AGENT_LIST].sort((a,b)=>a.localeCompare(b));
-    agentTrackMap = {};
-    sortedAgentNames.forEach((name, idx) => { agentTrackMap[name] = idx; });
-
-    selectedAgents = sortedAgentNames;
-    populateAgentFilter(sortedAgentNames);
-
-    // date summary + top metrics
-    const metricProdText = formatDurationHms(totalProdSecondsAll);
-    metricProdTime.textContent = metricProdText;
-
-    const totalRc = [...agentRcCounts.values()].reduce((acc, c) => acc + c.total, 0);
-    metricRcCount.textContent = totalRc.toLocaleString();
-    topMetrics.classList.remove('hidden');
-
-    const dates = callData.length
-      ? [...new Set(callData.map(c => c.startTime.toLocaleDateString()))].join(' & ')
-      : 'No calls';
-    document.getElementById('date-range-summary').textContent =
-      `Visualization spans activity on: ${dates}. Time axis is standardized to 8:30 AM - 5:30 PM.`;
-
-    return sortedAgentNames;
-  };
-
-  // --- Stats table ---
-  const calculateDailyStats = () => {
-    const stats = [];
-    const agentNames = AGENT_LIST.filter(name => selectedAgents.includes(name));
-
-    agentNames.forEach(agentName => {
-      const p = agentProductivity.get(agentName);
-      const totalProductiveTime = p.inboundTime + p.outboundTime;
-      const timeOffPhone = Math.max(0, NET_WORKDAY_SECONDS - totalProductiveTime);
-
-      stats.push({
-        agentName,
-        totalCalls: p.totalCalls, // RC-style all legs
-        inboundTime: p.inboundTime,
-        outboundTime: p.outboundTime,
-        totalProductiveTime,
-        timeOffPhone
-      });
-    });
-
-    return stats.sort((a,b)=>a.agentName.localeCompare(b.agentName));
-  };
-
-  const renderDailyStats = () => {
-    const stats = calculateDailyStats();
-    const tbody = document.getElementById('stats-table-body');
-    const summaryArea = document.getElementById('stats-summary-area');
-
-    if (stats.length === 0) { summaryArea.style.display = 'none'; return; }
-
-    tbody.innerHTML = '';
-    summaryArea.style.display = 'block';
-
-    stats.forEach((stat, i) => {
-      const row = document.createElement('tr');
-      row.className = `hover:bg-gray-100 ${i%2===1?'bg-gray-50':'bg-white'}`;
-      const offPhoneClass = stat.timeOffPhone > IDLE_TIME_HIGHLIGHT_SECONDS ? 'text-red-700 font-semibold' : 'text-gray-700';
-
-      row.innerHTML = `
-        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${stat.agentName}</td>
-        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${stat.totalCalls}</td>
-        <td class="px-6 py-4 whitespace-nowrap text-sm text-emerald-600">${formatDurationHms(stat.inboundTime)}</td>
-        <td class="px-6 py-4 whitespace-nowrap text-sm text-indigo-600">${formatDurationHms(stat.outboundTime)}</td>
-        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${formatDurationHms(stat.totalProductiveTime)}</td>
-        <td class="px-6 py-4 whitespace-nowrap text-sm ${offPhoneClass}">${formatDurationHms(stat.timeOffPhone)}</td>
-      `;
-      tbody.appendChild(row);
-    });
-  };
-
-  // --- Filter UI ---
-  const populateAgentFilter = (agentNames) => {
-    const container = document.getElementById('agent-list-panel');
-    container.innerHTML = '';
-    agentNames.forEach(agentName => {
-      const id = `timeline-agent-${agentName.replace(/\s/g,'-')}`;
-      const item = document.createElement('label');
-      item.className = 'agent-checkbox-item px-2';
-      item.htmlFor = id;
-
-      const checkbox = document.createElement('input');
-      checkbox.type = 'checkbox'; checkbox.id = id; checkbox.value = agentName;
-      checkbox.checked = true; checkbox.className = 'mr-2 rounded text-emerald-600 focus:ring-emerald-500';
-
-      item.appendChild(checkbox);
-      item.appendChild(document.createTextNode(agentName));
-      container.appendChild(item);
-    });
-    filterFeedback.textContent = `${agentNames.length} Agents Selected`;
-  };
-
-  // --- Timeline ---
-  const renderTimeline = (zoomLevel) => {
-    const width = 1500 * (zoomLevel / 100);
-    timelineChart.style.width = `${width}px`;
-
-    timelineChart.innerHTML = '';
-    agentLabelContainer.innerHTML = '';
-
-    const tracksToShow = AGENT_LIST.filter(name => selectedAgents.includes(name));
-    const visibleAgentTrackMap = {};
-    tracksToShow.forEach((name, index) => visibleAgentTrackMap[name] = index);
-
-    timelineChart.style.height = `${(tracksToShow.length + 1) * 35}px`;
-
-    // Time axis
-    const timeAxis = document.createElement('div');
-    timeAxis.className = 'absolute top-0 left-0 w-full h-8 flex border-b border-gray-300';
-    for (let s = START_OF_DAY_SECONDS; s <= END_OF_DAY_SECONDS; s += 1800) {
-      const position = ((s - timeMin) / totalTimeSeconds) * 100;
-      if (position > 100) break;
-      const marker = document.createElement('div');
-      marker.className = 'absolute h-full text-xs text-gray-500 pt-1 text-center font-medium';
-      marker.style.left = `${position}%`;
-      marker.style.transform = 'translateX(-50%)';
-      marker.style.borderLeft = '1px dashed #ccc';
-      marker.style.width = '1px';
-      marker.textContent = formatTime(s);
-      timeAxis.appendChild(marker);
     }
-    timelineChart.appendChild(timeAxis);
 
-    // Labels & tracks
-    tracksToShow.forEach((agentName, index) => {
-      const trackTop = (index + 1) * 35;
+    // ======= HEATMAP =======
+    function renderHeatmap() {
+      const selected = new Set(selectedAgents);
+      const data = callData.filter(c => selected.size ? selected.has(c.agentName) : true);
 
-      const label = document.createElement('div');
-      label.className = 'agent-label-row px-3 text-sm font-medium text-gray-800 truncate';
-      label.textContent = agentName;
-      agentLabelContainer.appendChild(label);
+      // Build 7x24 matrix (Sun..Sat x 00..23) counting number of calls (or sum of seconds)
+      const byDayHour = Array.from({length:7}, ()=>Array(24).fill(0));
+      for (const c of data) {
+        const d = c.startTime.getDay();  // 0 Sun .. 6 Sat
+        const h = c.startTime.getHours();
+        byDayHour[d][h] += 1; // density = count of calls (you can switch to += c.callLength for time density)
+      }
 
-      const track = document.createElement('div');
-      track.className = 'agent-track w-full';
-      track.style.top = `${trackTop}px`;
-      track.style.position = 'absolute';
-      timelineChart.appendChild(track);
-    });
+      const z = byDayHour;
+      const y = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+      const x = Array.from({length:24}, (_,h)=>`${String(h).padStart(2,'0')}:00`);
 
-    // Bars
-    tracksToShow.forEach(agentName => {
-      const trackIndex = visibleAgentTrackMap[agentName];
-      const trackTop = (trackIndex + 1) * 35;
-      const calls = agentProductivity.get(agentName)?.calls || [];
+      const trace = {
+        z, x, y, type: 'heatmap', hoverongaps: false,
+        colorscale: 'YlGnBu'
+      };
+      const layout = {
+        margin: {l:70, r:10, t:10, b:40},
+        xaxis: {title: 'Hour of Day'},
+        yaxis: {title: 'Day of Week', autorange: 'reversed'}
+      };
+      Plotly.newPlot('heatmap', [trace], layout, {responsive:true});
+    }
 
-      let lastEndTime = START_OF_DAY_SECONDS;
+    // ======= TIMELINE =======
+    function populateAgentFilter(agentNames) {
+      const container = document.getElementById('agent-list-panel');
+      container.innerHTML = '';
+      agentNames.forEach(agentName => {
+        const item = document.createElement('label');
+        item.className = 'agent-checkbox-item px-2';
+        item.htmlFor = `timeline-agent-${agentName.replace(/\s/g, '-')}`;
 
-      calls.forEach(call => {
-        // downtime
-        const gapStart = Math.max(lastEndTime, START_OF_DAY_SECONDS);
-        const gapEnd   = Math.min(call.startSeconds, END_OF_DAY_SECONDS);
-        if (gapEnd > gapStart) {
-          const gapDuration = gapEnd - gapStart;
-          const gapPosition = ((gapStart - timeMin) / totalTimeSeconds) * width;
-          const gapWidth    = (gapDuration / totalTimeSeconds) * width;
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.id = `timeline-agent-${agentName.replace(/\s/g, '-')}`;
+        checkbox.value = agentName;
+        checkbox.checked = true;
+        checkbox.className = 'mr-2 rounded text-emerald-600 focus:ring-emerald-500';
 
+        item.appendChild(checkbox);
+        item.appendChild(document.createTextNode(agentName));
+        container.appendChild(item);
+      });
+      filterFeedback.textContent = `${agentNames.length} Agents Selected`;
+    }
+
+    function renderTimeline(zoomLevel) {
+      const width = 1500 * (zoomLevel / 100);
+      timelineChart.style.width = `${width}px`;
+      timelineChart.innerHTML = '';
+      agentLabelContainer.innerHTML = '';
+
+      const allAgents = Array.from(agentProductivityCalls.keys()).sort();
+      const tracksToShow = allAgents.filter(n => selectedAgents.includes(n));
+      const visibleAgentTrackMap = {};
+      tracksToShow.forEach((n,i) => visibleAgentTrackMap[n] = i);
+
+      timelineChart.style.height = `${(tracksToShow.length + 1) * 35}px`;
+
+      // Time axis
+      const timeAxis = document.createElement('div');
+      timeAxis.className = 'absolute top-0 left-0 w-full h-8 flex border-b border-gray-300';
+      for (let s = START_OF_DAY_SECONDS; s <= END_OF_DAY_SECONDS; s += 1800) {
+        const position = ((s - timeMin) / totalTimeSeconds) * 100;
+        if (position > 100) break;
+        const marker = document.createElement('div');
+        marker.className = 'absolute h-full text-xs text-gray-500 pt-1 text-center font-medium';
+        marker.style.left = `${position}%`;
+        marker.style.transform = 'translateX(-50%)';
+        marker.style.borderLeft = '1px dashed #ccc';
+        marker.style.width = '1px';
+        marker.textContent = formatTimeLabel(s);
+        timeAxis.appendChild(marker);
+      }
+      timelineChart.appendChild(timeAxis);
+
+      // Labels + tracks
+      tracksToShow.forEach((agentName, index) => {
+        const trackTop = (index + 1) * 35;
+        const label = document.createElement('div');
+        label.className = 'agent-label-row px-3 text-sm font-medium text-gray-800 truncate';
+        label.textContent = agentName;
+        agentLabelContainer.appendChild(label);
+
+        const track = document.createElement('div');
+        track.className = 'agent-track w-full';
+        track.style.top = `${trackTop}px`;
+        track.style.position = 'absolute';
+        timelineChart.appendChild(track);
+      });
+
+      // Downtime + call bars
+      tracksToShow.forEach(agentName => {
+        const trackIndex = visibleAgentTrackMap[agentName];
+        const trackTop = (trackIndex + 1) * 35;
+        const calls = (agentProductivityCalls.get(agentName)?.calls || []).slice().sort((a,b)=>a.startSeconds - b.startSeconds);
+        let lastEndTime = START_OF_DAY_SECONDS;
+
+        calls.forEach(call => {
+          // downtime segment
+          const gapStart = Math.max(lastEndTime, START_OF_DAY_SECONDS);
+          const gapEnd   = Math.min(call.startSeconds, END_OF_DAY_SECONDS);
+          if (gapEnd > gapStart) {
+            const gapPosition = ((gapStart - timeMin) / totalTimeSeconds) * width;
+            const gapWidth    = ((gapEnd - gapStart) / totalTimeSeconds) * width;
+            const downtimeBar = document.createElement('div');
+            downtimeBar.className = 'downtime-bar';
+            downtimeBar.style.left = `${gapPosition}px`;
+            downtimeBar.style.width = `${gapWidth}px`;
+            downtimeBar.style.top = `${trackTop + 16}px`;
+            timelineChart.appendChild(downtimeBar);
+          }
+          lastEndTime = call.endSeconds;
+
+          // call bar
+          const callStart = Math.max(call.startSeconds, START_OF_DAY_SECONDS);
+          const callEnd   = Math.min(call.endSeconds, END_OF_DAY_SECONDS);
+          const callDur   = callEnd - callStart;
+          if (callDur > 0) {
+            const startPosition = ((callStart - timeMin) / totalTimeSeconds) * width;
+            const durationWidth = (callDur / totalTimeSeconds) * width;
+
+            let bg = 'bg-gray-400';
+            if (call.callType === 'ConnectedInbound') bg = 'bg-green-500';
+            else if (call.callType === 'ConnectedOutbound') bg = 'bg-blue-500';
+            else if (call.callType === 'Transferred') bg = 'bg-yellow-500';
+            else if (call.callType === 'OutboundAttempt') bg = 'bg-blue-300';
+
+            const bar = document.createElement('div');
+            bar.className = `call-bar ${bg}`;
+            bar.style.left = `${startPosition}px`;
+            bar.style.width = `${Math.max(3, durationWidth)}px`;
+            bar.style.top = `${trackTop + 5}px`;
+
+            bar.dataset.agent = call.agentName;
+            bar.dataset.direction = call.direction;
+            bar.dataset.start = call.startTime.toLocaleTimeString('en-US');
+            bar.dataset.duration = `${Math.floor(call.callLength/60)}m ${call.callLength%60}s`;
+            bar.dataset.result = call.result;
+
+            bar.addEventListener('mousemove', showTooltip);
+            bar.addEventListener('mouseleave', hideTooltip);
+
+            timelineChart.appendChild(bar);
+          }
+        });
+
+        // final downtime
+        const finalGapStart = Math.max(lastEndTime, START_OF_DAY_SECONDS);
+        const finalGapEnd   = END_OF_DAY_SECONDS;
+        if (finalGapEnd > finalGapStart) {
+          const gapPosition = ((finalGapStart - timeMin) / totalTimeSeconds) * width;
+          const gapWidth    = ((finalGapEnd - finalGapStart) / totalTimeSeconds) * width;
           const downtimeBar = document.createElement('div');
           downtimeBar.className = 'downtime-bar';
           downtimeBar.style.left = `${gapPosition}px`;
           downtimeBar.style.width = `${gapWidth}px`;
-          downtimeBar.style.top  = `${trackTop + 16}px`;
+          downtimeBar.style.top = `${(trackIndex + 1) * 35 + 16}px`;
           timelineChart.appendChild(downtimeBar);
         }
-        lastEndTime = call.endSeconds;
-
-        // call bar (only within workday)
-        const callStart = Math.max(call.startSeconds, START_OF_DAY_SECONDS);
-        const callEnd   = Math.min(call.endSeconds,   END_OF_DAY_SECONDS);
-        const callDur   = callEnd - callStart;
-        if (callDur <= 0) return;
-
-        const startPosition = ((callStart - timeMin) / totalTimeSeconds) * width;
-        const durationWidth = (callDur / totalTimeSeconds) * width;
-
-        const bar = document.createElement('div');
-        let bgColor = 'bg-gray-400';
-        if (call.callType === 'ConnectedInbound') bgColor = 'bg-green-500';
-        else if (call.callType === 'ConnectedOutbound') bgColor = 'bg-blue-500';
-        else if (call.callType === 'Transferred') bgColor = 'bg-yellow-500';
-        else if (call.callType === 'OutboundAttempt') bgColor = 'bg-blue-300';
-
-        bar.className = `call-bar ${bgColor}`;
-        bar.style.left = `${startPosition}px`;
-        bar.style.width = `${Math.max(3, durationWidth)}px`;
-        bar.style.top = `${trackTop + 5}px`;
-
-        bar.dataset.agent = call.agentName;
-        bar.dataset.direction = call.direction;
-        bar.dataset.start = call.startTime.toLocaleTimeString('en-US');
-        bar.dataset.duration = formatDurationMs(call.callLength);
-        bar.dataset.result = call.result;
-
-        bar.addEventListener('mousemove', showTooltip);
-        bar.addEventListener('mouseleave', hideTooltip);
-
-        timelineChart.appendChild(bar);
       });
 
-      // final downtime
-      const finalGapStart = Math.max(lastEndTime, START_OF_DAY_SECONDS);
-      const finalGapEnd   = END_OF_DAY_SECONDS;
-      if (finalGapEnd > finalGapStart) {
-        const gapDuration = finalGapEnd - finalGapStart;
-        const gapPosition = ((finalGapStart - timeMin) / totalTimeSeconds) * width;
-        const gapWidth    = (gapDuration / totalTimeSeconds) * width;
+      filterFeedback.textContent = `${selectedAgents.length} Agents Selected`;
+      renderUsersSummaryTable(); // keep summary fresh
+    }
 
-        const downtimeBar = document.createElement('div');
-        downtimeBar.className = 'downtime-bar';
-        downtimeBar.style.left = `${gapPosition}px`;
-        downtimeBar.style.width = `${gapWidth}px`;
-        downtimeBar.style.top  = `${trackTop + 16}px`;
-        timelineChart.appendChild(downtimeBar);
+    function showTooltip(e) {
+      const bar = e.currentTarget;
+      let directionLabel = bar.dataset.direction;
+      if (VALID_RESULTS_TRANSFERRED.includes(bar.dataset.result)) {
+        directionLabel = 'Transfer';
+      } else if (!VALID_RESULTS_CONNECTED.includes(bar.dataset.result)) {
+        directionLabel = 'Outbound Attempt';
       }
-    });
+      tooltip.innerHTML = `
+        <div class="text-sm font-bold text-white mb-1">${bar.dataset.agent}</div>
+        <div class="text-xs text-gray-300">
+          <p><strong>Type:</strong> ${directionLabel}</p>
+          <p><strong>Result:</strong> ${bar.dataset.result}</p>
+          <p><strong>Start Time:</strong> ${bar.dataset.start}</p>
+          <p><strong>Duration:</strong> ${bar.dataset.duration}</p>
+        </div>
+      `;
+      const rect = bar.getBoundingClientRect();
+      const scrollRect = timelineScrollContainer.getBoundingClientRect();
+      const scrollLeft = timelineScrollContainer.scrollLeft;
+      const x = rect.left - scrollRect.left + rect.width/2 + scrollLeft;
+      const y = rect.top - scrollRect.top;
+      tooltip.style.left = `${x}px`;
+      tooltip.style.top = `${y}px`;
+      tooltip.classList.add('show-tooltip');
+    }
+    function hideTooltip(){ tooltip.classList.remove('show-tooltip'); }
 
-    filterFeedback.textContent = `${selectedAgents.length} Agents Selected`;
-    renderDailyStats();
-  };
+    // ======= USERS SUMMARY (authoritative) =======
+    function renderUsersSummaryTable() {
+      const tbody = document.getElementById('stats-table-body');
+      const summaryArea = document.getElementById('stats-summary-area');
 
-  const showTooltip = (e) => {
-    const bar = e.currentTarget;
-    let directionLabel = bar.dataset.direction;
-    if (VALID_RESULTS_TRANSFERRED.includes(bar.dataset.result)) directionLabel = 'Transfer';
-    else if (!VALID_RESULTS_CONNECTED.includes(bar.dataset.result)) directionLabel = 'Outbound Attempt';
+      if (!agentUsersSummary.size) { summaryArea.style.display = 'none'; return; }
 
-    tooltip.innerHTML = `
-      <div class="text-sm font-bold text-white mb-1">${bar.dataset.agent}</div>
-      <div class="text-xs text-gray-300">
-        <p><strong>Type:</strong> ${directionLabel}</p>
-        <p><strong>Result:</strong> ${bar.dataset.result}</p>
-        <p><strong>Start Time:</strong> ${bar.dataset.start}</p>
-        <p><strong>Duration:</strong> ${bar.dataset.duration}</p>
-      </div>`;
-    const rect = bar.getBoundingClientRect();
-    const scrollRect = timelineScrollContainer.getBoundingClientRect();
-    const scrollLeft = timelineScrollContainer.scrollLeft;
-    const x = rect.left - scrollRect.left + rect.width/2 + scrollLeft;
-    const y = rect.top  - scrollRect.top;
-    tooltip.style.left = `${x}px`;
-    tooltip.style.top  = `${y}px`;
-    tooltip.classList.add('show-tooltip');
-  };
-  const hideTooltip = () => tooltip.classList.remove('show-tooltip');
+      // Use selected agent filter in summary too
+      const sel = new Set(selectedAgents);
+      const agentsToShow = Array.from(agentUsersSummary.keys()).filter(a => !sel.size || sel.has(a));
 
-  // --- Events ---
-  const handleFilterChange = () => {
-    const checkboxes = document.querySelectorAll('#agent-list-panel input[type="checkbox"]');
-    selectedAgents = [];
-    checkboxes.forEach(cb => { if (cb.checked) selectedAgents.push(cb.value); });
-    renderTimeline(zoomSlider.value);
-  };
-  const handleClearSelection = () => {
-    const checkboxes = document.querySelectorAll('#agent-list-panel input[type="checkbox"]');
-    checkboxes.forEach(cb => cb.checked = false);
-    handleFilterChange();
-  };
-  const handleZoomChange = (e) => renderTimeline(e.target.value);
+      if (!agentsToShow.length) { summaryArea.style.display = 'none'; return; }
 
-  const handleWorkbook = (workbook) => {
-    const sheet = workbook.Sheets["Calls"] || workbook.Sheets[workbook.SheetNames[0]];
-    if (!sheet) { loadFeedback.textContent = "No 'Calls' sheet found."; return; }
-    const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
-    const agentNames = parseRows(rows);
+      tbody.innerHTML = '';
+      summaryArea.style.display = 'block';
 
-    if (agentNames.length > 0) {
+      agentsToShow.sort((a,b)=>a.localeCompare(b)).forEach((agentName, i) => {
+        const u = agentUsersSummary.get(agentName) || { totalCalls:0,inboundTime:0,outboundTime:0,totalTime:0 };
+        const timeOff = Math.max(0, NET_WORKDAY_SECONDS - (u.totalTime || (u.inboundTime + u.outboundTime)));
+
+        const tr = document.createElement('tr');
+        tr.className = `hover:bg-gray-100 ${i%2===1 ? 'bg-gray-50':'bg-white'}`;
+
+        const offClass = timeOff > IDLE_TIME_HIGHLIGHT_SECONDS ? 'text-red-700 font-semibold' : 'text-gray-700';
+        tr.innerHTML = `
+          <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${agentName}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${u.totalCalls || 0}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-sm text-emerald-600">${fmtHMS(u.inboundTime)}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-sm text-indigo-600">${fmtHMS(u.outboundTime)}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${fmtHMS(u.totalTime || (u.inboundTime + u.outboundTime))}</td>
+          <td class="px-6 py-4 whitespace-nowrap text-sm ${offClass}">${fmtHMS(timeOff)}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // ======= DISCREPANCY CHECKER =======
+    function renderComparison() {
+      compareBody.innerHTML = '';
+      if (!agentUsersSummary.size) return;
+
+      // Build calls (sessions) per agent
+      const perAgentSessions = new Map(); // name -> {sessions:Set, inSec:0, outSec:0}
+      for (const call of callData) {
+        const name = call.agentName;
+        if (!perAgentSessions.has(name)) perAgentSessions.set(name, { sessions:new Set(), inSec:0, outSec:0 });
+        const a = perAgentSessions.get(name);
+        if (call.sessionId) a.sessions.add(call.sessionId);
+        if (call.callType === 'ConnectedInbound' || call.callType === 'Transferred') a.inSec += call.callLength;
+        else a.outSec += call.callLength;
+      }
+
+      // Row build
+      const allAgents = new Set([...agentUsersSummary.keys(), ...Array.from(perAgentSessions.keys())]);
+      const rows = Array.from(allAgents).sort((a,b)=>a.localeCompare(b));
+
+      rows.forEach(agent => {
+        const U = agentUsersSummary.get(agent) || { totalCalls:0,inboundTime:0,outboundTime:0 };
+        const C = perAgentSessions.get(agent) || { sessions:new Set(), inSec:0, outSec:0 };
+        const callsUsers = U.totalCalls || 0;
+        const callsCalls = (C.sessions ? C.sessions.size : 0);
+        const dCalls = callsCalls - callsUsers;
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="px-4 py-2">${agent}</td>
+          <td class="px-4 py-2">${callsUsers}</td>
+          <td class="px-4 py-2">${callsCalls}</td>
+          <td class="px-4 py-2 ${dCalls===0?'text-gray-700':(dCalls>0?'text-emerald-700 font-semibold':'text-red-700 font-semibold')}">${dCalls}</td>
+          <td class="px-4 py-2">${fmtHMS(U.inboundTime||0)}</td>
+          <td class="px-4 py-2">${fmtHMS(C.inSec||0)}</td>
+          <td class="px-4 py-2 ${Math.abs((C.inSec||0)-(U.inboundTime||0))>60?'text-yellow-700 font-semibold':'text-gray-700'}">${fmtHMS((C.inSec||0)-(U.inboundTime||0))}</td>
+          <td class="px-4 py-2">${fmtHMS(U.outboundTime||0)}</td>
+          <td class="px-4 py-2">${fmtHMS(C.outSec||0)}</td>
+          <td class="px-4 py-2 ${Math.abs((C.outSec||0)-(U.outboundTime||0))>60?'text-yellow-700 font-semibold':'text-gray-700'}">${fmtHMS((C.outSec||0)-(U.outboundTime||0))}</td>
+        `;
+        compareBody.appendChild(tr);
+      });
+    }
+
+    // ======= ON DATA READY =======
+    function onDataReady() {
+      if (!callsRows && !usersRows) return;
+
+      // Build structures
+      if (callsRows) buildAttributedCalls();
+      if (usersRows) buildUsersSummary();
+
+      // Agent lists from calls + users (union)
+      const agentNames = new Set();
+      if (agentProductivityCalls.size) {
+        for (const a of agentProductivityCalls.keys()) agentNames.add(a);
+      }
+      if (agentUsersSummary.size) {
+        for (const a of agentUsersSummary.keys()) agentNames.add(a);
+      }
+      const sortedAgents = Array.from(agentNames).sort();
+      selectedAgents = sortedAgents.slice();
+      populateAgentFilter(sortedAgents);
+
+      // Date summary
+      if (callData.length) {
+        const dates = Array.from(new Set(callData.map(c=>c.startTime.toLocaleDateString()))).join(' & ');
+        document.getElementById('date-range-summary').textContent = `Visualization spans activity on: ${dates}. Time axis is standardized to 8:30 AM - 5:30 PM.`;
+      }
+
+      // Render visuals
+      renderHeatmap();
       renderTimeline(zoomSlider.value);
-      document.getElementById('visualization-area').classList.remove('hidden');
-    } else {
-      document.getElementById('visualization-area').classList.add('hidden');
-      loadFeedback.textContent = "Data loaded, but no calls recognized.";
+      renderUsersSummaryTable();
+      renderComparison();
     }
-  };
 
-  const handleFileUpload = (file) => {
-    const name = file.name.toLowerCase();
-    if (!(name.endsWith('.xlsx') || name.endsWith('.xls'))) {
-      loadFeedback.textContent = "Please drop a RingCentral XLSX Calls file (.xlsx).";
-      return;
+    // ======= EVENTS =======
+    function handleFilterChange() {
+      const checkboxes = document.querySelectorAll('#agent-list-panel input[type="checkbox"]');
+      selectedAgents = [];
+      checkboxes.forEach(cb => { if (cb.checked) selectedAgents.push(cb.value); });
+      renderHeatmap();
+      renderTimeline(zoomSlider.value);
+      renderUsersSummaryTable();
+      renderComparison();
     }
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const data = new Uint8Array(e.target.result);
-      const workbook = XLSX.read(data, { type: 'array' });
-      handleWorkbook(workbook);
-      loadFeedback.textContent = `Loaded ${file.name}`;
-    };
-    reader.readAsArrayBuffer(file);
-    loadFeedback.textContent = `Processing ${file.name}...`;
-  };
+    function handleClearSelection() {
+      const checkboxes = document.querySelectorAll('#agent-list-panel input[type="checkbox"]');
+      checkboxes.forEach(cb => cb.checked = false);
+      handleFilterChange();
+    }
+    function handleZoomChange(e){ renderTimeline(e.target.value); }
 
-  const initApp = () => {
-    // file picker
-    fileInput.addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      if (file) handleFileUpload(file);
+    // Upload wiring
+    dropArea.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e)=> handleFiles(e.target.files));
+
+    ['dragenter','dragover','dragleave','drop'].forEach(ev=>{
+      dropArea.addEventListener(ev, (e)=>{ e.preventDefault(); e.stopPropagation(); }, false);
     });
-
-    // drag/drop
-    ['dragenter','dragover','dragleave','drop'].forEach(ev =>
-      dropArea.addEventListener(ev, (e)=>{ e.preventDefault(); e.stopPropagation(); }, false)
-    );
-    dropArea.addEventListener('drop', (e) => {
+    dropArea.addEventListener('drop', (e)=>{
       const dt = e.dataTransfer;
-      if (dt.files && dt.files.length) handleFileUpload(dt.files[0]);
+      if (dt.files && dt.files.length) handleFiles(dt.files);
     }, false);
-    dropArea.addEventListener('click', ()=> fileInput.click());
 
-    // controls
+    // Controls
     zoomSlider.addEventListener('input', handleZoomChange);
     document.getElementById('applyFilter').addEventListener('click', handleFilterChange);
     document.getElementById('clearSelection').addEventListener('click', handleClearSelection);
 
-    // initial seeding so layout renders nicely before load
-    seedAgents();
-    selectedAgents = [...AGENT_LIST];
-    renderTimeline(zoomSlider.value);
-  };
+    // Compare toggle
+    toggleCompareBtn.addEventListener('click', ()=>{
+      const hidden = compareSection.classList.toggle('hidden');
+      toggleCompareBtn.textContent = hidden ? 'Show Calls vs Users' : 'Hide Calls vs Users';
+    });
 
-  window.onload = initApp;
-</script>
+    // Initial empty layout render
+    renderHeatmap();
+    renderTimeline(zoomSlider.value);
+    renderUsersSummaryTable();
+  </script>
 </body>
 </html>
