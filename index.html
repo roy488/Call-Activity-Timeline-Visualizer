@@ -501,26 +501,33 @@
     // ------------------------------
     // BUILD DASHBOARD
     // ------------------------------
-    function buildDashboard() {
-      if (!callsRows || !usersRows) return;
+   function buildDashboard(callsData, usersData) {
+  try {
+    // Clear any previous render
+    document.getElementById("timelineContainer").innerHTML = "";
+    document.getElementById("productivityContainer").innerHTML = "";
+    document.getElementById("discrepancyContainer").innerHTML = "";
 
-      // parse calls
-      const c = buildCallsMetrics(callsRows);
-      callsMetrics = c.perAgent;
-
-      // parse users
-      usersMetrics = buildUsersMetrics(usersRows);
-
-      // header date summary
-      const header = document.getElementById('date-range-summary');
-      if (dateStrings.size) {
-        header.textContent = `Loaded data for: ${Array.from(dateStrings).sort().join(', ')}.`;
-      }
-
-      // render
-      renderSummary(usersMetrics);
-      renderDiff(callsMetrics, usersMetrics);
+    // ✅ Timeline (Calls)
+    if (callsData && callsData.timeline) {
+      renderTimeline(callsData.timeline);
     }
+
+    // ✅ Productivity Metrics (Users)
+    if (usersData && usersData.metrics) {
+      renderProductivity(usersData.metrics);
+    }
+
+    // ✅ Discrepancy Toggle (only differences)
+    if (callsData && usersData) {
+      renderDiscrepancy(callsData, usersData);
+    }
+
+  } catch (err) {
+    console.error("Dashboard build failed:", err);
+  }
+}
+
 
     // ------------------------------
     // FILE LOADING
